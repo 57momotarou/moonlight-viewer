@@ -79,16 +79,12 @@
               <p id="cloudMeta" class="muted"></p>
             </div>
           </div>
-          <div id="overviewCards" class="stat-grid"></div>
+          <button id="overviewCards" class="overview-summary-card" type="button" aria-expanded="false"></button>
+          <div id="overviewExtraDetails" class="overview-extra-details hidden"></div>
 
-          <div class="section">
-            <div class="section-title"><h2>実績</h2></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>従業員</th><th>役職</th><th>食べ物</th><th>飲み物</th><th>ジョイント</th><th>売上合計</th><th>その他</th></tr></thead>
-                <tbody id="overviewAchievements"></tbody>
-              </table>
-            </div>
+          <div class="section overview-achievements-section">
+            <div class="section-title"><h2>実績</h2><span class="tiny muted">タップで詳細</span></div>
+            <div id="overviewAchievements" class="overview-employee-list"></div>
           </div>
         </section>
 

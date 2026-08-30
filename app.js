@@ -29,6 +29,7 @@
     toast: $("#toast"),
     cloudMeta: $("#cloudMeta"),
     overviewCards: $("#overviewCards"),
+    overviewExtraDetails: $("#overviewExtraDetails"),
     overviewAchievements: $("#overviewAchievements"),
     salesList: $("#salesList"),
     deliveryList: $("#deliveryList"),
@@ -377,30 +378,59 @@
 
   function renderOverview() {
     const active = (state.employees || []).filter(activeEmployee).length;
-    const allAmounts = (state.dailySales || []).reduce((t, r) => t + recordAmounts(r).total, 0);
+    const allRecords = state.dailySales || [];
+    const allAmounts = allRecords.reduce((total, record) => total + recordAmounts(record).total, 0);
+    const totalBreakdown = allRecords.reduce((totals, record) => {
+      const amount = recordAmounts(record);
+      totals.food += amount.food;
+      totals.drink += amount.drink;
+      totals.joint += amount.joint;
+      totals.other += amount.other;
+      return totals;
+    }, { food: 0, drink: 0, joint: 0, other: 0 });
     const today = new Date();
     const y = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    const todayAmount = (state.dailySales || []).filter((r) => String(r.invoiceAt || r.saleDate || "").slice(0, 10) === y).reduce((t, r) => t + recordAmounts(r).total, 0);
+    const todayRecords = allRecords.filter((record) => String(record.invoiceAt || record.saleDate || "").slice(0, 10) === y);
+    const todayAmount = todayRecords.reduce((total, record) => total + recordAmounts(record).total, 0);
     const lastPayout = [...(state.payoutHistory || [])].sort((a, b) => String(b.payoutDate || "").localeCompare(String(a.payoutDate || "")))[0];
+    const buyers = buyerSummary();
+    const deliveryCount = (state.deliveryOrders || []).length;
 
-    els.cloudMeta.textContent = `クラウド version ${cloud.version} / ${cloud.updatedAt ? new Date(cloud.updatedAt).toLocaleString("ja-JP") : "-"}`;
-    els.overviewCards.innerHTML = [
-      ["在籍従業員", `${active}人`],
-      ["本日の売上", money(todayAmount)],
-      ["累計売上", money(allAmounts)],
-      ["最終支給日", lastPayout?.payoutDate ? dateOnly(lastPayout.payoutDate) : "-"]
-    ]
-      .map(([l, v]) => `<div class="stat"><span class="label">${l}</span><strong>${v}</strong></div>`)
-      .join("");
+    els.cloudMeta.textContent = "";
+    els.overviewCards.innerHTML = `
+      <span class="overview-summary-hint">タップで詳細</span>
+      <div class="overview-summary-grid">
+        <div><span>在籍人数</span><strong>${active}人</strong></div>
+        <div><span>今日の売上</span><strong>${money(todayAmount)}</strong></div>
+        <div><span>最終支給日</span><strong>${lastPayout?.payoutDate ? dateOnly(lastPayout.payoutDate) : "-"}</strong></div>
+      </div>
+    `;
+    els.overviewExtraDetails.innerHTML = `
+      <div class="overview-detail-grid">
+        ${amountCell("累計売上", money(allAmounts), `${allRecords.length.toLocaleString("ja-JP")}伝票`)}
+        ${amountCell("食べ物売上", money(totalBreakdown.food))}
+        ${amountCell("飲み物売上", money(totalBreakdown.drink))}
+        ${amountCell("ジョイント売上", money(totalBreakdown.joint))}
+        ${amountCell("その他売上", money(totalBreakdown.other))}
+        ${amountCell("今日の伝票", `${todayRecords.length.toLocaleString("ja-JP")}件`)}
+        ${amountCell("購入者", `${buyers.length.toLocaleString("ja-JP")}人`)}
+        ${amountCell("デリバリー", `${deliveryCount.toLocaleString("ja-JP")}件`)}
+      </div>
+      <p class="overview-cloud-note">クラウド version ${cloud.version} / ${cloud.updatedAt ? new Date(cloud.updatedAt).toLocaleString("ja-JP") : "-"}</p>
+    `;
 
     const salesMap = employeeSalesMap();
-    els.overviewAchievements.innerHTML =
-      sortedEmployees()
-        .map((e) => {
-          const s = salesMap.get(String(e.id)) || { food: 0, drink: 0, joint: 0, other: 0, total: 0 };
-          return `<tr class="employee-detail-area" data-employee-area="${esc(e.id)}"><td>${employeeDetailButton(e.id, e.name)}</td><td><span class="pill role">${esc(e.role || "-")}</span></td><td>${money(s.food)}</td><td>${money(s.drink)}</td><td>${money(s.joint)}</td><td><strong>${money(s.total)}</strong></td><td>${money(s.other)}</td></tr>`;
-        })
-        .join("") || `<tr><td colspan="7">データがありません</td></tr>`;
+    els.overviewAchievements.innerHTML = sortedEmployees().map((employee) => {
+      const sales = salesMap.get(String(employee.id)) || { food: 0, drink: 0, joint: 0, other: 0, total: 0 };
+      return `<article class="overview-employee-card employee-detail-area" data-employee-area="${esc(employee.id)}">
+        <div>
+          <strong>${esc(employee.name)}</strong>
+          <span>${esc(employee.role || "-")}</span>
+        </div>
+        <div class="overview-employee-total"><span>売上合計</span><strong>${money(sales.total)}</strong></div>
+        <span class="overview-chevron">›</span>
+      </article>`;
+    }).join("") || empty("従業員がいません");
   }
 
   function amountCell(label, amount, note = "") {
@@ -492,6 +522,19 @@
         .join("") || empty("商品が登録されていません");
   }
 
+  function productNameKey(value) {
+    return String(value || "").normalize("NFKC").toLocaleLowerCase("ja-JP").replace(/[\s_\-・.()（）]+/g, "").trim();
+  }
+
+  function canonicalInventoryName(name, category = "") {
+    const raw = String(name || "").trim();
+    const key = productNameKey(raw);
+    if (!key) return raw;
+    const catalog = (state.productCatalog || []).filter((item) => item && item.name && item.active !== false && (!category || item.category === category));
+    const exact = catalog.find((item) => [item.name, item.stashName, ...(Array.isArray(item.aliases) ? item.aliases : [])].some((value) => productNameKey(value) === key));
+    return exact?.name || raw;
+  }
+
   function normalizeSnapshot(s) {
     return {
       ...s,
@@ -504,7 +547,7 @@
   function renderSnapshot(s, latest = false) {
     s = normalizeSnapshot(s);
     const products = s.products
-      .map((p) => `<div class="inventory-product"><strong>${esc(p.name || "-")}</strong><br><span class="muted">${esc(categoryLabel(p.category))}</span> ${qty(p.count)}</div>`)
+      .map((p) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(p.name || "-", p.category))}</strong><br><span class="muted">${esc(categoryLabel(p.category))}</span> ${qty(p.count)}</div>`)
       .join("");
     return `<div class="inventory-block">
       <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
@@ -732,6 +775,12 @@
   );
   $$('[data-more-target]').forEach((btn) => btn.addEventListener("click", () => showPage(btn.dataset.moreTarget)));
   els.closeMoreBtn.addEventListener("click", () => els.moreSheet.classList.add("hidden"));
+
+  els.overviewCards?.addEventListener("click", () => {
+    const opening = els.overviewExtraDetails?.classList.contains("hidden");
+    els.overviewExtraDetails?.classList.toggle("hidden", !opening);
+    els.overviewCards.setAttribute("aria-expanded", String(Boolean(opening)));
+  });
 
   els.viewerScreen?.addEventListener("click", (event) => {
     if (event.target.closest("button, input, select, textarea, a, label")) return;
