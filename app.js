@@ -77,6 +77,11 @@
     return saved === 0 || saved === 30000 ? 80000 : saved;
   }
 
+  function roleFixedBonus(employee, settings = {}) {
+    if (!employee || employee.role === "店長") return 0;
+    return Math.max(0, Math.round(num(settings.roleBonuses?.[employee.role] ?? 0)));
+  }
+
   function setSplash(message, progress = 0) {
     if (els.startupText) els.startupText.textContent = message;
     if (els.startupProgressBar) els.startupProgressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
@@ -677,15 +682,52 @@
     }
     const rate = Math.max(0, num(settings.bonusRatePercent ?? 40));
     const coinUnitAmount = effectiveCoinUnitAmount(settings);
-    return employees.map((e) => {
+    const targetAmount = Math.max(0, Math.round(num(settings.storeFunds)));
+    const entries = employees.map((e) => {
       const sales = totals.get(String(e.id)) || 0;
+      const roleBonus = roleFixedBonus(e, settings);
       const salesBonus = Math.round(sales * rate / 100);
       const coins = num(e.coins);
       const coinBonus = Math.round(coins * coinUnitAmount);
-      const auto = salesBonus + coinBonus;
-      const override = state.payoutOverrides && Object.prototype.hasOwnProperty.call(state.payoutOverrides, e.id) ? num(state.payoutOverrides[e.id]) : null;
-      return { e, sales, rate, coinUnitAmount, coins, salesBonus, coinBonus, auto, amount: override === null ? auto : override, manual: override !== null };
-    }).sort((a, b) => roleIndex(a.e.role) - roleIndex(b.e.role) || String(a.e.name).localeCompare(String(b.e.name), "ja"));
+      const auto = roleBonus + salesBonus + coinBonus;
+      const override = e.role !== "店長" && state.payoutOverrides && Object.prototype.hasOwnProperty.call(state.payoutOverrides, e.id) ? Math.max(0, Math.round(num(state.payoutOverrides[e.id]))) : null;
+      return {
+        e,
+        sales,
+        rate,
+        coinUnitAmount,
+        coins,
+        roleBonus,
+        salesBonus,
+        coinBonus,
+        auto,
+        amount: override === null ? auto : override,
+        manual: override !== null,
+        managerRemainder: e.role === "店長",
+        targetAmount,
+        otherEmployeeTotal: 0,
+        managerCount: 0
+      };
+    });
+
+    const regularEntries = entries.filter((entry) => !entry.managerRemainder);
+    const managerEntries = entries.filter((entry) => entry.managerRemainder);
+    const otherEmployeeTotal = regularEntries.reduce((sum, entry) => sum + num(entry.amount), 0);
+    const managerPool = Math.max(0, targetAmount - otherEmployeeTotal);
+    const managerCount = managerEntries.length;
+    const baseManagerAmount = managerCount ? Math.floor(managerPool / managerCount) : 0;
+    const managerRemainderYen = managerCount ? managerPool % managerCount : 0;
+
+    managerEntries.forEach((entry, index) => {
+      const amount = baseManagerAmount + (index < managerRemainderYen ? 1 : 0);
+      entry.auto = amount;
+      entry.amount = amount;
+      entry.manual = false;
+      entry.otherEmployeeTotal = otherEmployeeTotal;
+      entry.managerCount = managerCount;
+    });
+
+    return entries.sort((a, b) => roleIndex(a.e.role) - roleIndex(b.e.role) || String(a.e.name).localeCompare(String(b.e.name), "ja"));
   }
 
   function renderBonus() {
@@ -696,6 +738,7 @@
     const coinUnitAmount = effectiveCoinUnitAmount(settings);
     els.bonusSummary.innerHTML = [
       ["対象期間", `${dateOnly(settings.bonusStartDate)}〜${dateOnly(settings.bonusEndDate)}`],
+      ["ボーナス予算", money(settings.storeFunds)],
       ["計算後支給額", money(total)],
       ["売上割合", `${rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`],
       ["コイン単価", money(coinUnitAmount)]
@@ -705,17 +748,25 @@
 
     els.bonusCurrent.innerHTML =
       entries
-        .map(
-          (x) => `<article class="item-card employee-detail-area" data-employee-area="${esc(x.e.id)}">
-      <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
-      <div class="breakdown-grid">
-        ${amountCell("対象期間の売上", money(x.sales), "売上金額")}
+        .map((x) => {
+          const breakdown = x.managerRemainder
+            ? `
+        ${amountCell("ボーナス予算", money(x.targetAmount))}
+        ${amountCell("店長以外の支給総額", money(x.otherEmployeeTotal))}
+        ${amountCell("店長の残額", money(x.amount), x.managerCount > 1 ? `店長${x.managerCount}人で均等分配` : `${money(x.targetAmount)} − ${money(x.otherEmployeeTotal)}`)}
+        ${amountCell("対象期間の売上", money(x.sales), "店長の支給額には加算しません")}`
+            : `
+        ${amountCell("役職固定給", money(x.roleBonus), x.e.role || "-")}
         ${amountCell("売上加算", money(x.salesBonus), `${money(x.sales)} × ${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
         ${amountCell("コイン", `${Math.round(x.coins).toLocaleString("ja-JP")}枚`, `${Math.round(x.coins).toLocaleString("ja-JP")}枚 × ${money(x.coinUnitAmount)} = ${money(x.coinBonus)}`)}
-        ${amountCell("自動支給額", money(x.auto), `${money(x.salesBonus)} + ${money(x.coinBonus)}`)}
+        ${amountCell("自動支給額", money(x.auto), `${money(x.roleBonus)} + ${money(x.salesBonus)} + ${money(x.coinBonus)}`)}`;
+          return `<article class="item-card employee-detail-area" data-employee-area="${esc(x.e.id)}">
+      <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
+      <div class="breakdown-grid">
+        ${breakdown}
       </div>
-    </article>`
-        )
+    </article>`;
+        })
         .join("") || empty("対象従業員がいません");
 
     const hist = [...(state.payoutHistory || [])].sort((a, b) => String(b.payoutDate || "").localeCompare(String(a.payoutDate || "")));
