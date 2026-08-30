@@ -298,7 +298,7 @@
   }
 
   function employeeDetailButton(employeeId, employeeName) {
-    return `<button type="button" class="employee-detail-trigger" data-employee-id="${esc(employeeId || "")}">${esc(employeeName || "-")}</button>`;
+    return `<span class="employee-detail-label">${esc(employeeName || "-")}</span>`;
   }
 
   function closeEmployeeDetail() {
@@ -341,7 +341,13 @@
     const aliases = Array.isArray(employee.aliases) && employee.aliases.length ? employee.aliases.join(" / ") : "なし";
     const recent = records.slice(0, 8).map((r) => {
       const a = recordAmounts(r);
-      return `<article class="detail-sale-row"><div><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong><span>${esc(r.buyerName || "-")}</span></div><div class="money sm">${money(a.total)}</div></article>`;
+      const detailParts = [
+        num(r.foodQty) > 0 ? `食べ物 ${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)} = ${money(a.food)}` : "",
+        num(r.drinkQty) > 0 ? `飲み物 ${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)} = ${money(a.drink)}` : "",
+        num(r.jointQty) > 0 ? `ジョイント ${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)} = ${money(a.joint)}` : "",
+        a.other > 0 ? `その他 ${money(a.other)}` : ""
+      ].filter(Boolean).map((line) => `<span>${line}</span>`).join("");
+      return `<article class="detail-sale-row detail-sale-row-expanded"><div><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong><span>${esc(r.buyerName || "-")}</span><div class="detail-sale-breakdown">${detailParts || '<span>内訳なし</span>'}</div></div><div class="money sm">${money(a.total)}</div></article>`;
     }).join("") || `<div class="empty-state">販売実績はありません</div>`;
     const payoutRows = payouts.slice(0, 5).map((p) => `<article class="detail-sale-row"><div><strong>${dateOnly(p.date)}</strong><span>${dateOnly(p.start)}〜${dateOnly(p.end)}</span></div><div class="money sm">${money(p.amount)}</div></article>`).join("") || `<div class="empty-state">支給履歴はありません</div>`;
 
@@ -392,7 +398,7 @@
       sortedEmployees()
         .map((e) => {
           const s = salesMap.get(String(e.id)) || { food: 0, drink: 0, joint: 0, other: 0, total: 0 };
-          return `<tr><td>${employeeDetailButton(e.id, e.name)}</td><td><span class="pill role">${esc(e.role || "-")}</span></td><td>${money(s.food)}</td><td>${money(s.drink)}</td><td>${money(s.joint)}</td><td><strong>${money(s.total)}</strong></td><td>${money(s.other)}</td></tr>`;
+          return `<tr class="employee-detail-area" data-employee-area="${esc(e.id)}"><td>${employeeDetailButton(e.id, e.name)}</td><td><span class="pill role">${esc(e.role || "-")}</span></td><td>${money(s.food)}</td><td>${money(s.drink)}</td><td>${money(s.joint)}</td><td><strong>${money(s.total)}</strong></td><td>${money(s.other)}</td></tr>`;
         })
         .join("") || `<tr><td colspan="7">データがありません</td></tr>`;
   }
@@ -408,10 +414,11 @@
         .map((r) => {
           const a = recordAmounts(r);
           const emp = employeeForRecord(r);
-          return `<article class="item-card">
+          const employeeId = emp?.id || r.employeeId || "";
+          return `<article class="item-card employee-detail-area" data-employee-area="${esc(employeeId)}">
             <div class="item-top">
               <div>
-                <div class="item-title">${employeeDetailButton(emp?.id || r.employeeId, emp?.name || r.employeeName || "-")}</div>
+                <div class="item-title">${employeeDetailButton(employeeId, emp?.name || r.employeeName || "-")}</div>
                 <div class="item-meta">${invoiceAt(r.invoiceAt || r.saleDate)} / 購入者 ${esc(r.buyerName || "-")}</div>
               </div>
               <div>
@@ -420,9 +427,9 @@
               </div>
             </div>
             <div class="breakdown-grid">
-              ${amountCell("食べ物", money(a.food), `${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)}`)}
-              ${amountCell("飲み物", money(a.drink), `${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)}`)}
-              ${amountCell("ジョイント", money(a.joint), `${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)}`)}
+              ${amountCell("食べ物", qty(r.foodQty))}
+              ${amountCell("飲み物", qty(r.drinkQty))}
+              ${amountCell("ジョイント", qty(r.jointQty))}
               ${amountCell("その他", money(a.other), a.other ? "その他売上" : "加算なし")}
             </div>
           </article>`;
@@ -561,7 +568,7 @@
     els.bonusCurrent.innerHTML =
       entries
         .map(
-          (x) => `<article class="item-card">
+          (x) => `<article class="item-card employee-detail-area" data-employee-area="${esc(x.e.id)}">
       <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}${x.manager ? " / 余り支給" : ""}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
       <div class="breakdown-grid">
         ${amountCell("対象期間の売上", money(x.sales), x.manager ? "-" : "売上金額")}
@@ -727,11 +734,11 @@
   els.closeMoreBtn.addEventListener("click", () => els.moreSheet.classList.add("hidden"));
 
   els.viewerScreen?.addEventListener("click", (event) => {
-    const trigger = event.target.closest(".employee-detail-trigger");
-    if (!trigger) return;
+    if (event.target.closest("button, input, select, textarea, a, label")) return;
+    const area = event.target.closest("[data-employee-area]");
+    if (!area?.dataset.employeeArea) return;
     event.preventDefault();
-    event.stopPropagation();
-    openEmployeeDetail(trigger.dataset.employeeId);
+    openEmployeeDetail(area.dataset.employeeArea);
   });
   els.closeEmployeeDetailBtn?.addEventListener("click", closeEmployeeDetail);
   els.employeeDetailModal?.addEventListener("click", (event) => {

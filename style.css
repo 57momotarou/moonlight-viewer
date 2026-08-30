@@ -189,3 +189,12 @@ body.detail-open{overflow:hidden}
   .employee-detail-sheet-head{top:-22px;margin:-22px -22px 18px;padding:18px 22px 14px}
   .detail-profile-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
+
+/* v4 whole-card employee details + compact sales quantity */
+.employee-detail-label{color:var(--text);font-weight:800}
+.employee-detail-area{cursor:pointer;transition:border-color .14s ease,background-color .14s ease,transform .08s ease}
+.employee-detail-area:active{border-color:rgba(212,175,103,.5);background:rgba(212,175,103,.05)}
+tr.employee-detail-area:active td{background:rgba(212,175,103,.055)}
+.detail-sale-row-expanded{align-items:flex-start}
+.detail-sale-breakdown{display:grid;gap:3px;margin-top:8px}
+.detail-sale-breakdown span{display:block;color:#c1ccdc;font-size:11px;line-height:1.5;margin:0}
