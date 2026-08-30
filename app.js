@@ -71,6 +71,12 @@
   const statusLabel = (e) => (e?.status === "retired" ? "退職" : "在籍");
   const activeEmployee = (e) => e?.status !== "retired";
 
+  function effectiveCoinUnitAmount(settings = {}) {
+    const saved = Math.max(0, num(settings.coinUnitAmount));
+    if (settings.bonusCoinDefaultV2 === true) return saved || 80000;
+    return saved === 0 || saved === 30000 ? 80000 : saved;
+  }
+
   function setSplash(message, progress = 0) {
     if (els.startupText) els.startupText.textContent = message;
     if (els.startupProgressBar) els.startupProgressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
@@ -415,11 +421,11 @@
     `;
     els.overviewExtraDetails.innerHTML = `
       <div class="overview-detail-grid">
-        ${amountCell("累計売上", money(allAmounts), `${allRecords.length.toLocaleString("ja-JP")}伝票`)}
         ${amountCell("食べ物売上", money(totalBreakdown.food))}
         ${amountCell("飲み物売上", money(totalBreakdown.drink))}
         ${amountCell("ジョイント売上", money(totalBreakdown.joint))}
         ${amountCell("その他売上", money(totalBreakdown.other))}
+        ${amountCell("売上合計", money(allAmounts), `${allRecords.length.toLocaleString("ja-JP")}伝票`)}
         ${amountCell("今日の伝票", `${todayRecords.length.toLocaleString("ja-JP")}件`)}
         ${amountCell("購入者", `${buyers.length.toLocaleString("ja-JP")}人`)}
         ${amountCell("デリバリー", `${deliveryCount.toLocaleString("ja-JP")}件`)}
@@ -463,14 +469,14 @@
         <article><span>従業員</span><strong>${esc(emp?.name || r.employeeName || "-")}</strong></article>
         <article><span>購入者</span><strong>${esc(r.buyerName || "-")}</strong></article>
         <article><span>請求日時</span><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong></article>
-        <article><span>売上合計</span><strong>${money(a.total)}</strong></article>
       </div>
       <div class="detail-section"><h3>商品内訳</h3>
         <div class="breakdown-grid">
-          ${amountCell("食べ物", qty(r.foodQty), `${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)} = ${money(a.food)}`)}
-          ${amountCell("飲み物", qty(r.drinkQty), `${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)} = ${money(a.drink)}`)}
-          ${amountCell("ジョイント", qty(r.jointQty), `${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)} = ${money(a.joint)}`)}
+          ${amountCell("食べ物売上", money(a.food), `${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)} = ${money(a.food)}`)}
+          ${amountCell("飲み物売上", money(a.drink), `${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)} = ${money(a.drink)}`)}
+          ${amountCell("ジョイント売上", money(a.joint), `${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)} = ${money(a.joint)}`)}
           ${amountCell("その他売上", money(a.other), "その他として記録された金額")}
+          ${amountCell("売上合計", money(a.total), "4項目の合計")}
         </div>
       </div>`;
     els.salesDetailModal.classList.remove("hidden");
@@ -546,16 +552,13 @@
                 <div class="item-title">${esc(emp?.name || r.employeeName || "-")}</div>
                 <div class="item-meta">${invoiceAt(r.invoiceAt || r.saleDate)} / 購入者 ${esc(r.buyerName || "-")}</div>
               </div>
-              <div>
-                <div class="money">${money(a.total)}</div>
-                <div class="money-note">売上合計</div>
-              </div>
             </div>
             <div class="breakdown-grid">
               ${amountCell("食べ物", qty(r.foodQty))}
               ${amountCell("飲み物", qty(r.drinkQty))}
               ${amountCell("ジョイント", qty(r.jointQty))}
-              ${amountCell("その他", money(a.other), a.other ? "その他売上" : "加算なし")}
+              ${amountCell("その他売上", money(a.other))}
+              ${amountCell("売上合計", money(a.total), "4項目の合計")}
             </div>
           </article>`;
         })
@@ -673,11 +676,15 @@
       totals.set(String(e.id), (totals.get(String(e.id)) || 0) + recordAmounts(r).total);
     }
     const rate = Math.max(0, num(settings.bonusRatePercent ?? 40));
+    const coinUnitAmount = effectiveCoinUnitAmount(settings);
     return employees.map((e) => {
       const sales = totals.get(String(e.id)) || 0;
-      const auto = Math.round(sales * rate / 100);
+      const salesBonus = Math.round(sales * rate / 100);
+      const coins = num(e.coins);
+      const coinBonus = Math.round(coins * coinUnitAmount);
+      const auto = salesBonus + coinBonus;
       const override = state.payoutOverrides && Object.prototype.hasOwnProperty.call(state.payoutOverrides, e.id) ? num(state.payoutOverrides[e.id]) : null;
-      return { e, sales, rate, auto, amount: override === null ? auto : override, manual: override !== null };
+      return { e, sales, rate, coinUnitAmount, coins, salesBonus, coinBonus, auto, amount: override === null ? auto : override, manual: override !== null };
     }).sort((a, b) => roleIndex(a.e.role) - roleIndex(b.e.role) || String(a.e.name).localeCompare(String(b.e.name), "ja"));
   }
 
@@ -686,11 +693,12 @@
     const entries = currentBonusEntries();
     const total = entries.reduce((t, x) => t + num(x.amount), 0);
     const rate = Math.max(0, num(settings.bonusRatePercent ?? 40));
+    const coinUnitAmount = effectiveCoinUnitAmount(settings);
     els.bonusSummary.innerHTML = [
       ["対象期間", `${dateOnly(settings.bonusStartDate)}〜${dateOnly(settings.bonusEndDate)}`],
-      ["今回支給額", money(settings.storeFunds)],
       ["計算後支給額", money(total)],
-      ["ボーナス割合", `${rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`]
+      ["売上割合", `${rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`],
+      ["コイン単価", money(coinUnitAmount)]
     ]
       .map(([l, v]) => `<div class="stat"><span class="label">${l}</span><strong>${v}</strong></div>`)
       .join("");
@@ -702,7 +710,9 @@
       <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
       <div class="breakdown-grid">
         ${amountCell("対象期間の売上", money(x.sales), "売上金額")}
-        ${amountCell("割合", `${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`, `${money(x.sales)} × ${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}% = ${money(x.auto)}`)}
+        ${amountCell("売上加算", money(x.salesBonus), `${money(x.sales)} × ${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
+        ${amountCell("コイン", `${Math.round(x.coins).toLocaleString("ja-JP")}枚`, `${Math.round(x.coins).toLocaleString("ja-JP")}枚 × ${money(x.coinUnitAmount)} = ${money(x.coinBonus)}`)}
+        ${amountCell("自動支給額", money(x.auto), `${money(x.salesBonus)} + ${money(x.coinBonus)}`)}
       </div>
     </article>`
         )
