@@ -41,7 +41,11 @@
     payoutHistory: $("#payoutHistory"),
     employeeList: $("#employeeList"),
     moreSheet: $("#moreSheet"),
-    closeMoreBtn: $("#closeMoreBtn")
+    closeMoreBtn: $("#closeMoreBtn"),
+    employeeDetailModal: $("#employeeDetailModal"),
+    employeeDetailTitle: $("#employeeDetailTitle"),
+    employeeDetailContent: $("#employeeDetailContent"),
+    closeEmployeeDetailBtn: $("#closeEmployeeDetailBtn")
   };
 
   let state = {};
@@ -293,6 +297,78 @@
     return [...map.values()].sort((a, b) => b.count - a.count || String(b.last).localeCompare(String(a.last)) || a.name.localeCompare(b.name, "ja"));
   }
 
+  function employeeDetailButton(employeeId, employeeName) {
+    return `<button type="button" class="employee-detail-trigger" data-employee-id="${esc(employeeId || "")}">${esc(employeeName || "-")}</button>`;
+  }
+
+  function closeEmployeeDetail() {
+    if (!els.employeeDetailModal) return;
+    els.employeeDetailModal.classList.add("hidden");
+    els.employeeDetailModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("detail-open");
+  }
+
+  function employeeDetailData(employeeId) {
+    const employee = (state.employees || []).find((item) => String(item.id) === String(employeeId));
+    if (!employee) return null;
+    const records = (state.dailySales || [])
+      .filter((r) => String(employeeForRecord(r)?.id || r.employeeId || "") === String(employee.id))
+      .sort((a, b) => String(b.invoiceAt || b.saleDate || "").localeCompare(String(a.invoiceAt || a.saleDate || "")));
+    const totals = records.reduce((acc, r) => {
+      const a = recordAmounts(r);
+      acc.food += a.food;
+      acc.drink += a.drink;
+      acc.joint += a.joint;
+      acc.other += a.other;
+      acc.total += a.total;
+      return acc;
+    }, { food: 0, drink: 0, joint: 0, other: 0, total: 0 });
+    const current = currentBonusEntries().find((entry) => String(entry.e.id) === String(employee.id)) || null;
+    const payouts = [];
+    for (const payout of state.payoutHistory || []) {
+      const entry = (payout.entries || payout.payouts || []).find((x) => String(x.employeeId || "") === String(employee.id) || String(x.employeeName || x.name || "") === String(employee.name || ""));
+      if (entry) payouts.push({ date: payout.payoutDate || "-", amount: num(entry.amount), start: payout.periodStart || payout.bonusStartDate || "-", end: payout.periodEnd || payout.bonusEndDate || "-" });
+    }
+    payouts.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return { employee, records, totals, current, payouts };
+  }
+
+  function openEmployeeDetail(employeeId) {
+    const detail = employeeDetailData(employeeId);
+    if (!detail || !els.employeeDetailModal || !els.employeeDetailContent) return;
+    const { employee, records, totals, current, payouts } = detail;
+    els.employeeDetailTitle.textContent = employee.name || "従業員詳細";
+    const aliases = Array.isArray(employee.aliases) && employee.aliases.length ? employee.aliases.join(" / ") : "なし";
+    const recent = records.slice(0, 8).map((r) => {
+      const a = recordAmounts(r);
+      return `<article class="detail-sale-row"><div><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong><span>${esc(r.buyerName || "-")}</span></div><div class="money sm">${money(a.total)}</div></article>`;
+    }).join("") || `<div class="empty-state">販売実績はありません</div>`;
+    const payoutRows = payouts.slice(0, 5).map((p) => `<article class="detail-sale-row"><div><strong>${dateOnly(p.date)}</strong><span>${dateOnly(p.start)}〜${dateOnly(p.end)}</span></div><div class="money sm">${money(p.amount)}</div></article>`).join("") || `<div class="empty-state">支給履歴はありません</div>`;
+
+    els.employeeDetailContent.innerHTML = `
+      <div class="detail-profile-grid">
+        <div><span>役職</span><strong>${esc(employee.role || "-")}</strong></div>
+        <div><span>状態</span><strong>${esc(statusLabel(employee))}</strong></div>
+        <div><span>SPコイン</span><strong>${Math.round(num(employee.coins)).toLocaleString("ja-JP")}枚</strong></div>
+        <div><span>販売記録</span><strong>${records.length.toLocaleString("ja-JP")}件</strong></div>
+      </div>
+      <div class="detail-alias"><span>請求名 / 別名</span><strong>${esc(aliases)}</strong></div>
+      <div class="breakdown-grid detail-money-grid">
+        ${amountCell("食べ物売上", money(totals.food))}
+        ${amountCell("飲み物売上", money(totals.drink))}
+        ${amountCell("ジョイント売上", money(totals.joint))}
+        ${amountCell("その他売上", money(totals.other))}
+        ${amountCell("売上合計", money(totals.total), "累計")}
+        ${amountCell("今回の支給額", current ? money(current.amount) : "-", "ボーナス")}
+      </div>
+      <div class="detail-section"><h3>最近の販売実績</h3><div class="detail-list">${recent}</div></div>
+      <div class="detail-section"><h3>支給履歴</h3><div class="detail-list">${payoutRows}</div></div>
+    `;
+    els.employeeDetailModal.classList.remove("hidden");
+    els.employeeDetailModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("detail-open");
+  }
+
   function renderOverview() {
     const active = (state.employees || []).filter(activeEmployee).length;
     const allAmounts = (state.dailySales || []).reduce((t, r) => t + recordAmounts(r).total, 0);
@@ -316,7 +392,7 @@
       sortedEmployees()
         .map((e) => {
           const s = salesMap.get(String(e.id)) || { food: 0, drink: 0, joint: 0, other: 0, total: 0 };
-          return `<tr><td>${esc(e.name)}</td><td><span class="pill role">${esc(e.role || "-")}</span></td><td>${money(s.food)}</td><td>${money(s.drink)}</td><td>${money(s.joint)}</td><td><strong>${money(s.total)}</strong></td><td>${money(s.other)}</td></tr>`;
+          return `<tr><td>${employeeDetailButton(e.id, e.name)}</td><td><span class="pill role">${esc(e.role || "-")}</span></td><td>${money(s.food)}</td><td>${money(s.drink)}</td><td>${money(s.joint)}</td><td><strong>${money(s.total)}</strong></td><td>${money(s.other)}</td></tr>`;
         })
         .join("") || `<tr><td colspan="7">データがありません</td></tr>`;
   }
@@ -335,7 +411,7 @@
           return `<article class="item-card">
             <div class="item-top">
               <div>
-                <div class="item-title">${esc(emp?.name || r.employeeName || "-")}</div>
+                <div class="item-title">${employeeDetailButton(emp?.id || r.employeeId, emp?.name || r.employeeName || "-")}</div>
                 <div class="item-meta">${invoiceAt(r.invoiceAt || r.saleDate)} / 購入者 ${esc(r.buyerName || "-")}</div>
               </div>
               <div>
@@ -424,7 +500,7 @@
       .map((p) => `<div class="inventory-product"><strong>${esc(p.name || "-")}</strong><br><span class="muted">${esc(categoryLabel(p.category))}</span> ${qty(p.count)}</div>`)
       .join("");
     return `<div class="inventory-block">
-      <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}</div><div class="item-meta">${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
+      <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
       <div class="key-values"><span>ご飯の素</span><strong>${qty(s.materials.food)}</strong><span>飲み物の素</span><strong>${qty(s.materials.drink)}</strong><span>リラックスの素</span><strong>${qty(s.materials.joint)}</strong><span>甘いものの素</span><strong>${qty(s.materials.sweet)}</strong></div>
       ${products ? `<div class="inventory-products">${products}</div>` : ""}
     </div>`;
@@ -486,7 +562,7 @@
       entries
         .map(
           (x) => `<article class="item-card">
-      <div class="item-top"><div><div class="item-title">${esc(x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}${x.manager ? " / 余り支給" : ""}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
+      <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}${x.manager ? " / 余り支給" : ""}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
       <div class="breakdown-grid">
         ${amountCell("対象期間の売上", money(x.sales), x.manager ? "-" : "売上金額")}
         ${amountCell("役職固定", money(x.roleBonus), x.manager ? "余り支給" : "役職ごとの固定額")}
@@ -649,6 +725,18 @@
   );
   $$('[data-more-target]').forEach((btn) => btn.addEventListener("click", () => showPage(btn.dataset.moreTarget)));
   els.closeMoreBtn.addEventListener("click", () => els.moreSheet.classList.add("hidden"));
+
+  els.viewerScreen?.addEventListener("click", (event) => {
+    const trigger = event.target.closest(".employee-detail-trigger");
+    if (!trigger) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openEmployeeDetail(trigger.dataset.employeeId);
+  });
+  els.closeEmployeeDetailBtn?.addEventListener("click", closeEmployeeDetail);
+  els.employeeDetailModal?.addEventListener("click", (event) => {
+    if (event.target.matches("[data-close-employee-detail]")) closeEmployeeDetail();
+  });
 
   $$('[data-sales-tab]').forEach((btn) =>
     btn.addEventListener("click", () => {
