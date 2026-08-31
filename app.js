@@ -463,6 +463,14 @@
     }) || null;
   }
 
+  function deliveryRecordKey(record) {
+    return String(record?.id || `${record?.orderNo || ""}|${record?.recordedAt || ""}|${record?.buyerName || ""}`);
+  }
+
+  function findDeliveryRecordByKey(key) {
+    return (state.deliveryOrders || []).find((record) => deliveryRecordKey(record) === String(key || "")) || null;
+  }
+
   function openSalesDetail(key) {
     const r = findSaleRecordByKey(key);
     if (!r || !els.salesDetailModal || !els.salesDetailContent) return;
@@ -493,6 +501,31 @@
     els.salesDetailModal?.classList.add("hidden");
     els.salesDetailModal?.setAttribute("aria-hidden", "true");
     document.body.classList.remove("detail-open");
+  }
+
+  function openDeliveryDetail(key) {
+    const d = findDeliveryRecordByKey(key);
+    if (!d || !els.salesDetailModal || !els.salesDetailContent) return;
+    const itemRows = Array.isArray(d.items) && d.items.length
+      ? d.items.map((item) => amountCell(item.name || categoryLabel(item.category), qty(item.count), `カテゴリ ${categoryLabel(item.category)}`)).join("")
+      : [
+          amountCell("食べ物", qty(d.foodQty)),
+          amountCell("飲み物", qty(d.drinkQty)),
+          amountCell("ジョイント", qty(d.jointQty))
+        ].join("");
+    els.salesDetailTitle.textContent = "デリバリー詳細";
+    els.salesDetailContent.innerHTML = `
+      <div class="detail-profile-grid">
+        <article><span>注文番号</span><strong>${esc(d.orderNo || "デリバリー")}</strong></article>
+        <article><span>注文者</span><strong>${esc(d.buyerName || "-")}</strong></article>
+        <article><span>注文日時</span><strong>${invoiceAt(d.recordedAt)}</strong></article>
+      </div>
+      <div class="detail-section"><h3>商品内訳</h3>
+        <div class="breakdown-grid">${itemRows}</div>
+      </div>`;
+    els.salesDetailModal.classList.remove("hidden");
+    els.salesDetailModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("detail-open");
   }
 
   function buyerMatchesName(displayName, candidate) {
@@ -548,22 +581,14 @@
     els.salesList.innerHTML =
       rows
         .map((r) => {
-          const a = recordAmounts(r);
           const emp = employeeForRecord(r);
           const employeeId = emp?.id || r.employeeId || "";
-          return `<article class="item-card tap-detail-card" data-sale-area="${esc(r.id || `${r.invoiceAt || r.saleDate || ""}|${employeeId}|${r.buyerName || ""}`)}">
+          return `<article class="item-card tap-detail-card compact-detail-card" data-sale-area="${esc(r.id || `${r.invoiceAt || r.saleDate || ""}|${employeeId}|${r.buyerName || ""}`)}">
             <div class="item-top">
               <div>
                 <div class="item-title">${esc(emp?.name || r.employeeName || "-")}</div>
                 <div class="item-meta">${invoiceAt(r.invoiceAt || r.saleDate)} / 購入者 ${esc(r.buyerName || "-")}</div>
               </div>
-            </div>
-            <div class="breakdown-grid">
-              ${amountCell("食べ物", qty(r.foodQty))}
-              ${amountCell("飲み物", qty(r.drinkQty))}
-              ${amountCell("ジョイント", qty(r.jointQty))}
-              ${amountCell("その他売上", money(a.other))}
-              ${amountCell("売上合計", money(a.total), "4項目の合計")}
             </div>
           </article>`;
         })
@@ -573,21 +598,13 @@
     els.deliveryList.innerHTML =
       deliveries
         .map((d) => {
-          const itemRows = Array.isArray(d.items) && d.items.length
-            ? d.items.map((i) => amountCell(i.name || categoryLabel(i.category), qty(i.count), `カテゴリ ${categoryLabel(i.category)}`)).join("")
-            : [
-                amountCell("食べ物", qty(d.foodQty)),
-                amountCell("飲み物", qty(d.drinkQty)),
-                amountCell("ジョイント", qty(d.jointQty))
-              ].join("");
-          return `<article class="item-card">
+          return `<article class="item-card tap-detail-card compact-detail-card" data-delivery-area="${esc(deliveryRecordKey(d))}">
             <div class="item-top">
               <div>
                 <div class="item-title">${esc(d.orderNo || "デリバリー")}</div>
                 <div class="item-meta">${invoiceAt(d.recordedAt)} / 注文者 ${esc(d.buyerName || "-")}</div>
               </div>
             </div>
-            <div class="breakdown-grid">${itemRows}</div>
           </article>`;
         })
         .join("") || empty("デリバリー履歴がありません");
@@ -598,15 +615,9 @@
     els.buyersList.innerHTML =
       rows
         .map(
-          (b) => `<article class="item-card tap-detail-card" data-buyer-area="${esc(b.name)}">
+          (b) => `<article class="item-card tap-detail-card compact-detail-card" data-buyer-area="${esc(b.name)}">
         <div class="item-top"><div><div class="item-title">${esc(b.name)}</div><div class="item-meta">${b.aliases.length ? `請求書名: ${esc(b.aliases.join(" / "))}` : "請求書名なし"}</div></div><strong>${b.count}回</strong></div>
         <div class="pills"><span class="pill">店頭 ${b.store}回</span><span class="pill">デリバリー ${b.delivery}回</span><span class="pill">最終 ${invoiceAt(b.last)}</span></div>
-        <div class="breakdown-grid">
-          ${amountCell("食べ物", qty(b.food))}
-          ${amountCell("飲み物", qty(b.drink))}
-          ${amountCell("ジョイント", qty(b.joint))}
-          ${amountCell("その他売上", money(b.other))}
-        </div>
       </article>`
         )
         .join("") || empty("購入者がいません");
@@ -930,6 +941,8 @@
 
   els.viewerScreen?.addEventListener("click", (event) => {
     if (event.target.closest("button, input, select, textarea, a, label")) return;
+    const deliveryArea = event.target.closest("[data-delivery-area]");
+    if (deliveryArea?.dataset.deliveryArea) { event.preventDefault(); openDeliveryDetail(deliveryArea.dataset.deliveryArea); return; }
     const saleArea = event.target.closest("[data-sale-area]");
     if (saleArea?.dataset.saleArea) { event.preventDefault(); openSalesDetail(saleArea.dataset.saleArea); return; }
     const buyerArea = event.target.closest("[data-buyer-area]");
