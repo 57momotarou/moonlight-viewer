@@ -248,3 +248,17 @@ tr.employee-detail-area:active td{background:rgba(212,175,103,.055)}
 #salesDetailContent .detail-section,#buyerDetailContent .detail-section{margin-top:20px}
 #buyerDetailContent .detail-alias{margin-top:14px}
 .detail-profile-grid>article{background:var(--panel3);border:1px solid var(--line);border-radius:14px;padding:11px}
+
+/* v10 bonus coin cycle + collapsible payout history */
+.payout-history-card{padding:0;overflow:hidden}
+.payout-history-card summary{list-style:none;padding:14px 15px;cursor:pointer}
+.payout-history-card summary::-webkit-details-marker{display:none}
+.payout-history-card summary .item-top{margin:0}
+.payout-history-hint{display:block;margin-top:9px;padding-top:8px;border-top:1px solid rgba(39,54,79,.72);color:#7f90aa;font-size:10px;text-align:right}
+.payout-history-card[open] .payout-history-hint{color:#c8a95f}
+.payout-history-card[open] .payout-history-hint::after{content:"（開いています）"}
+.payout-history-details{display:grid;border-top:1px solid var(--line);background:rgba(7,15,26,.52)}
+.payout-history-details>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 15px;border-top:1px solid rgba(39,54,79,.55)}
+.payout-history-details>div:first-child{border-top:0}
+.payout-history-details span{color:#c3cedd;font-size:12px;overflow-wrap:anywhere}
+.payout-history-details strong{color:#f8e3ad;font-size:13px;white-space:nowrap}

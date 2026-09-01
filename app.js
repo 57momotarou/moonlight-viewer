@@ -66,6 +66,7 @@
   const num = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
   const money = (v) => `$${Math.round(num(v)).toLocaleString("en-US")}`;
   const qty = (v) => `${Math.round(num(v)).toLocaleString("ja-JP")}個`;
+  const roundUpThousand = (v) => num(v) > 0 ? Math.ceil(num(v) / 1000) * 1000 : 0;
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const categoryLabel = (v) => ({ food: "食べ物", drink: "飲み物", joint: "ジョイント" }[v] || v || "-");
   const statusLabel = (e) => (e?.status === "retired" ? "退職" : "在籍");
@@ -236,11 +237,28 @@
   }
 
   function recordAmounts(r) {
-    const food = num(r.foodQty) * num(r.foodUnitPrice ?? (num(r.foodQty) ? 30000 : 0));
-    const drink = num(r.drinkQty) * num(r.drinkUnitPrice ?? (num(r.drinkQty) ? 30000 : 0));
-    const joint = num(r.jointQty) * num(r.jointUnitPrice ?? (num(r.jointQty) ? 50000 : 0));
+    let food = num(r.foodQty) * num(r.foodUnitPrice ?? (num(r.foodQty) ? 30000 : 0));
+    let drink = num(r.drinkQty) * num(r.drinkUnitPrice ?? (num(r.drinkQty) ? 30000 : 0));
+    let joint = num(r.jointQty) * num(r.jointUnitPrice ?? (num(r.jointQty) ? 50000 : 0));
+    for (const item of Array.isArray(r.customItems) ? r.customItems : []) {
+      const amount = num(item.totalAmount) || num(item.count) * num(item.unitPrice);
+      if (item.category === "food") food += amount;
+      if (item.category === "drink") drink += amount;
+      if (item.category === "joint") joint += amount;
+    }
     const other = num(r.otherAmount);
     return { food, drink, joint, other, total: food + drink + joint + other };
+  }
+
+  function recordCategoryQty(r, category) {
+    const custom = (Array.isArray(r.customItems) ? r.customItems : [])
+      .filter((item) => item.category === category)
+      .reduce((sum, item) => sum + num(item.count), 0);
+    return num(r[`${category}Qty`]) + custom;
+  }
+
+  function bonusCoins(e) {
+    return Math.max(0, num(e?.bonusCoins ?? e?.coins ?? 0));
   }
 
   function employeeForRecord(r) {
@@ -300,9 +318,9 @@
       if (!x) continue;
       x.count++;
       x.store++;
-      x.food += num(r.foodQty);
-      x.drink += num(r.drinkQty);
-      x.joint += num(r.jointQty);
+      x.food += recordCategoryQty(r, "food");
+      x.drink += recordCategoryQty(r, "drink");
+      x.joint += recordCategoryQty(r, "joint");
       x.other += num(r.otherAmount);
     }
     for (const d of state.deliveryOrders || []) {
@@ -362,9 +380,9 @@
     const recent = records.slice(0, 8).map((r) => {
       const a = recordAmounts(r);
       const detailParts = [
-        num(r.foodQty) > 0 ? `食べ物 ${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)} = ${money(a.food)}` : "",
-        num(r.drinkQty) > 0 ? `飲み物 ${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)} = ${money(a.drink)}` : "",
-        num(r.jointQty) > 0 ? `ジョイント ${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)} = ${money(a.joint)}` : "",
+        recordCategoryQty(r, "food") > 0 ? `食べ物 ${qty(recordCategoryQty(r, "food"))} = ${money(a.food)}` : "",
+        recordCategoryQty(r, "drink") > 0 ? `飲み物 ${qty(recordCategoryQty(r, "drink"))} = ${money(a.drink)}` : "",
+        recordCategoryQty(r, "joint") > 0 ? `ジョイント ${qty(recordCategoryQty(r, "joint"))} = ${money(a.joint)}` : "",
         a.other > 0 ? `その他 ${money(a.other)}` : ""
       ].filter(Boolean).map((line) => `<span>${line}</span>`).join("");
       return `<article class="detail-sale-row detail-sale-row-expanded"><div><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong><span>${esc(r.buyerName || "-")}</span><div class="detail-sale-breakdown">${detailParts || '<span>内訳なし</span>'}</div></div><div class="money sm">${money(a.total)}</div></article>`;
@@ -375,7 +393,8 @@
       <div class="detail-profile-grid">
         <div><span>役職</span><strong>${esc(employee.role || "-")}</strong></div>
         <div><span>状態</span><strong>${esc(statusLabel(employee))}</strong></div>
-        <div><span>SPコイン</span><strong>${Math.round(num(employee.coins)).toLocaleString("ja-JP")}枚</strong></div>
+        <div><span>コイン累計</span><strong>${Math.round(num(employee.coins)).toLocaleString("ja-JP")}枚</strong></div>
+        <div><span>今回のボーナス対象</span><strong>${Math.round(bonusCoins(employee)).toLocaleString("ja-JP")}枚</strong></div>
         <div><span>販売記録</span><strong>${records.length.toLocaleString("ja-JP")}件</strong></div>
       </div>
       <div class="detail-alias"><span>請求名 / 別名</span><strong>${esc(aliases)}</strong></div>
@@ -476,6 +495,8 @@
     if (!r || !els.salesDetailModal || !els.salesDetailContent) return;
     const a = recordAmounts(r);
     const emp = employeeForRecord(r);
+    const customItems = Array.isArray(r.customItems) ? r.customItems : [];
+    const customRows = customItems.map((item) => amountCell(item.name || "カスタム商品", qty(item.count), `${categoryLabel(item.category)} / ${money(item.totalAmount || num(item.count) * num(item.unitPrice))}`)).join("");
     els.salesDetailTitle.textContent = "伝票詳細";
     els.salesDetailContent.innerHTML = `
       <div class="detail-profile-grid">
@@ -485,13 +506,14 @@
       </div>
       <div class="detail-section"><h3>商品内訳</h3>
         <div class="breakdown-grid">
-          ${amountCell("食べ物売上", money(a.food), `${qty(r.foodQty)} × ${money(r.foodUnitPrice || 0)} = ${money(a.food)}`)}
-          ${amountCell("飲み物売上", money(a.drink), `${qty(r.drinkQty)} × ${money(r.drinkUnitPrice || 0)} = ${money(a.drink)}`)}
-          ${amountCell("ジョイント売上", money(a.joint), `${qty(r.jointQty)} × ${money(r.jointUnitPrice || 0)} = ${money(a.joint)}`)}
+          ${amountCell("食べ物売上", money(a.food), `${qty(recordCategoryQty(r, "food"))}`)}
+          ${amountCell("飲み物売上", money(a.drink), `${qty(recordCategoryQty(r, "drink"))}`)}
+          ${amountCell("ジョイント売上", money(a.joint), `${qty(recordCategoryQty(r, "joint"))}`)}
           ${amountCell("その他売上", money(a.other), "その他として記録された金額")}
           ${amountCell("売上合計", money(a.total), "4項目の合計")}
         </div>
-      </div>`;
+      </div>
+      ${customRows ? `<div class="detail-section"><h3>カスタム請求の在庫商品</h3><div class="breakdown-grid">${customRows}</div></div>` : ""}`;
     els.salesDetailModal.classList.remove("hidden");
     els.salesDetailModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("detail-open");
@@ -664,7 +686,7 @@
       .map((p) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(p.name || "-", p.category))}</strong><br><span class="muted">${esc(categoryLabel(p.category))}</span> ${qty(p.count)}</div>`)
       .join("");
     return `<div class="inventory-block">
-      <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
+      <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}${s.isBaseline ? ' <span class="pill role">比較基準</span>' : ""}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
       <div class="key-values"><span>ご飯の素</span><strong>${qty(s.materials.food)}</strong><span>飲み物の素</span><strong>${qty(s.materials.drink)}</strong><span>リラックスの素</span><strong>${qty(s.materials.joint)}</strong><span>甘いものの素</span><strong>${qty(s.materials.sweet)}</strong></div>
       ${products ? `<div class="inventory-products">${products}</div>` : ""}
     </div>`;
@@ -698,9 +720,9 @@
       const sales = totals.get(String(e.id)) || 0;
       const roleBonus = roleFixedBonus(e, settings);
       const salesBonus = Math.round(sales * rate / 100);
-      const coins = num(e.coins);
+      const coins = bonusCoins(e);
       const coinBonus = Math.round(coins * coinUnitAmount);
-      const auto = roleBonus + salesBonus + coinBonus;
+      const auto = roundUpThousand(roleBonus + salesBonus + coinBonus);
       const override = e.role !== "店長" && state.payoutOverrides && Object.prototype.hasOwnProperty.call(state.payoutOverrides, e.id) ? Math.max(0, Math.round(num(state.payoutOverrides[e.id]))) : null;
       return {
         e,
@@ -770,7 +792,7 @@
         ${amountCell("役職固定給", money(x.roleBonus), x.e.role || "-")}
         ${amountCell("売上加算", money(x.salesBonus), `${money(x.sales)} × ${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
         ${amountCell("コイン", `${Math.round(x.coins).toLocaleString("ja-JP")}枚`, `${Math.round(x.coins).toLocaleString("ja-JP")}枚 × ${money(x.coinUnitAmount)} = ${money(x.coinBonus)}`)}
-        ${amountCell("自動支給額", money(x.auto), `${money(x.roleBonus)} + ${money(x.salesBonus)} + ${money(x.coinBonus)}`)}`;
+        ${amountCell("自動支給額", money(x.auto), `${money(x.roleBonus)} + ${money(x.salesBonus)} + ${money(x.coinBonus)} / 1,000円未満切り上げ`)}`;
           return `<article class="item-card employee-detail-area" data-employee-area="${esc(x.e.id)}">
       <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
       <div class="breakdown-grid">
@@ -784,10 +806,10 @@
     els.payoutHistory.innerHTML =
       hist
         .map(
-          (h) => `<article class="item-card">
-      <div class="item-top"><div><div class="item-title">${dateOnly(h.payoutDate)}</div><div class="item-meta">${dateOnly(h.periodStart || h.bonusStartDate)}〜${dateOnly(h.periodEnd || h.bonusEndDate)}</div></div><div><div class="money sm">${money(h.totalAmount || h.actualTotal || h.total)}</div><div class="money-note">支給総額</div></div></div>
-      <div class="pills">${(h.entries || h.payouts || []).map((x) => `<span class="pill">${esc(x.employeeName || x.name || "-")} ${money(x.amount)}</span>`).join("")}</div>
-    </article>`
+          (h) => `<details class="item-card payout-history-card">
+      <summary><div class="item-top"><div><div class="item-title">${dateOnly(h.payoutDate)}</div><div class="item-meta">${dateOnly(h.periodStart || h.bonusStartDate)}〜${dateOnly(h.periodEnd || h.bonusEndDate)}</div></div><div><div class="money sm">${money(h.totalAmount || h.actualTotal || h.total)}</div><div class="money-note">支給総額</div></div></div><span class="payout-history-hint">タップで内訳を表示</span></summary>
+      <div class="payout-history-details">${(h.entries || h.payouts || []).map((x) => `<div><span>${esc(x.employeeName || x.name || "-")} / ${esc(x.role || "-")}</span><strong>${money(x.amount)}</strong></div>`).join("") || '<div><span>内訳なし</span></div>'}</div>
+    </details>`
         )
         .join("") || empty("支給履歴がありません");
   }
@@ -798,7 +820,7 @@
         .map(
           (e) => `<article class="item-card">
       <div class="item-top"><div><div class="item-title">${esc(e.name || "-")}</div><div class="item-meta">${Array.isArray(e.aliases) && e.aliases.length ? `請求名: ${esc(e.aliases.join(" / "))}` : "請求名なし"}</div></div><span class="pill">${esc(statusLabel(e))}</span></div>
-      <div class="pills"><span class="pill role">${esc(e.role || "-")}</span><span class="pill">SPコイン ${Math.round(num(e.coins)).toLocaleString("ja-JP")}枚</span></div>
+      <div class="pills"><span class="pill role">${esc(e.role || "-")}</span><span class="pill">コイン累計 ${Math.round(num(e.coins)).toLocaleString("ja-JP")}枚</span><span class="pill">今回対象 ${Math.round(bonusCoins(e)).toLocaleString("ja-JP")}枚</span></div>
     </article>`
         )
         .join("") || empty("従業員がいません");
