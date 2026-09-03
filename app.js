@@ -31,7 +31,14 @@
     overviewCards: $("#overviewCards"),
     overviewExtraDetails: $("#overviewExtraDetails"),
     overviewAchievements: $("#overviewAchievements"),
+    overviewRetiredAchievements: $("#overviewRetiredAchievements"),
+    overviewActiveCount: $("#overviewActiveCount"),
+    overviewRetiredCount: $("#overviewRetiredCount"),
     salesList: $("#salesList"),
+    salesSummaryPanel: $("#salesSummaryPanel"),
+    salesSummaryMode: $("#salesSummaryMode"),
+    salesSummaryTotals: $("#salesSummaryTotals"),
+    salesSummaryList: $("#salesSummaryList"),
     deliveryList: $("#deliveryList"),
     buyersList: $("#buyersList"),
     productsList: $("#productsList"),
@@ -415,7 +422,9 @@
   }
 
   function renderOverview() {
-    const active = (state.employees || []).filter(activeEmployee).length;
+    const activeEmployees = sortedEmployees().filter(activeEmployee);
+    const retiredEmployees = sortedEmployees().filter((employee) => !activeEmployee(employee));
+    const active = activeEmployees.length;
     const allRecords = state.dailySales || [];
     const allAmounts = allRecords.reduce((total, record) => total + recordAmounts(record).total, 0);
     const totalBreakdown = allRecords.reduce((totals, record) => {
@@ -458,17 +467,21 @@
     `;
 
     const salesMap = employeeSalesMap();
-    els.overviewAchievements.innerHTML = sortedEmployees().map((employee) => {
+    const employeeCards = (employees, retired = false) => employees.map((employee) => {
       const sales = salesMap.get(String(employee.id)) || { food: 0, drink: 0, joint: 0, other: 0, total: 0 };
-      return `<article class="overview-employee-card employee-detail-area" data-employee-area="${esc(employee.id)}">
+      return `<article class="overview-employee-card employee-detail-area${retired ? " retired" : ""}" data-employee-area="${esc(employee.id)}">
         <div>
           <strong>${esc(employee.name)}</strong>
-          <span>${esc(employee.role || "-")}</span>
+          <span>${esc(employee.role || "-")}${retired ? ' ・ <b class="retired-label">退職</b>' : ""}</span>
         </div>
         <div class="overview-employee-total"><span>売上合計</span><strong>${money(sales.total)}</strong></div>
         <span class="overview-chevron">›</span>
       </article>`;
-    }).join("") || empty("従業員がいません");
+    }).join("");
+    els.overviewAchievements.innerHTML = employeeCards(activeEmployees) || empty("在籍者がいません");
+    els.overviewRetiredAchievements.innerHTML = employeeCards(retiredEmployees, true) || empty("退職者がいません");
+    els.overviewActiveCount.textContent = `${activeEmployees.length}人`;
+    els.overviewRetiredCount.textContent = `${retiredEmployees.length}人`;
   }
 
   function amountCell(label, amount, note = "") {
@@ -630,6 +643,81 @@
           </article>`;
         })
         .join("") || empty("デリバリー履歴がありません");
+    renderSalesSummary();
+  }
+
+  function buildSalesSummaryGroups(mode = "day") {
+    const groups = new Map();
+    for (const record of state.dailySales || []) {
+      const employee = employeeForRecord(record);
+      const employeeId = String(employee?.id || record.employeeId || "");
+      const employeeName = String(employee?.name || record.employeeName || "-");
+      const saleDate = String(record.saleDate || record.invoiceAt || "").slice(0, 10) || "-";
+      let key = `day:${saleDate}`;
+      let label = dateOnly(saleDate);
+      if (mode === "employee") {
+        key = `employee:${employeeId || buyerKey(employeeName)}`;
+        label = employeeName;
+      } else if (mode === "dayEmployee") {
+        key = `dayEmployee:${saleDate}:${employeeId || buyerKey(employeeName)}`;
+        label = `${dateOnly(saleDate)} / ${employeeName}`;
+      }
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          label,
+          saleDate,
+          employeeId: mode === "employee" || mode === "dayEmployee" ? employeeId : "",
+          employeeName: mode === "employee" || mode === "dayEmployee" ? employeeName : "",
+          transactions: 0,
+          food: 0,
+          drink: 0,
+          joint: 0,
+          other: 0,
+          total: 0
+        });
+      }
+      const group = groups.get(key);
+      const amounts = recordAmounts(record);
+      group.transactions += 1;
+      for (const name of ["food", "drink", "joint", "other", "total"]) group[name] += amounts[name];
+    }
+    const result = [...groups.values()];
+    if (mode === "employee") result.sort((a, b) => a.label.localeCompare(b.label, "ja"));
+    else result.sort((a, b) => b.saleDate.localeCompare(a.saleDate) || a.label.localeCompare(b.label, "ja"));
+    return result;
+  }
+
+  function renderSalesSummary() {
+    if (!els.salesSummaryTotals || !els.salesSummaryList) return;
+    const records = state.dailySales || [];
+    const totals = records.reduce((sum, record) => {
+      const amounts = recordAmounts(record);
+      for (const name of ["food", "drink", "joint", "other", "total"]) sum[name] += amounts[name];
+      return sum;
+    }, { food: 0, drink: 0, joint: 0, other: 0, total: 0 });
+    els.salesSummaryTotals.innerHTML = `
+      <article class="stat"><span class="label">販売記録</span><strong>${records.length.toLocaleString("ja-JP")}件</strong></article>
+      <article class="stat"><span class="label">その他売上</span><strong>${money(totals.other)}</strong></article>
+      <article class="stat sales-summary-grand-total"><span class="label">売上合計</span><strong>${money(totals.total)}</strong></article>`;
+
+    const groups = buildSalesSummaryGroups(els.salesSummaryMode?.value || "day");
+    els.salesSummaryList.innerHTML = groups.map((group) => {
+      const employeeAttribute = group.employeeId ? ` data-employee-area="${esc(group.employeeId)}"` : "";
+      return `<article class="item-card sales-summary-card${group.employeeId ? " employee-detail-area" : ""}"${employeeAttribute}>
+        <div class="item-top">
+          <div><div class="item-title">${esc(group.label)}</div><div class="item-meta">取引 ${group.transactions.toLocaleString("ja-JP")}件</div></div>
+          <div class="money sm">${money(group.total)}</div>
+        </div>
+        <div class="breakdown-grid sales-summary-breakdown">
+          ${amountCell("食べ物売上", money(group.food))}
+          ${amountCell("飲み物売上", money(group.drink))}
+          ${amountCell("ジョイント売上", money(group.joint))}
+          ${amountCell("その他売上", money(group.other))}
+        </div>
+        ${group.employeeId ? '<span class="sales-summary-detail-hint">タップで従業員詳細</span>' : ""}
+      </article>`;
+    }).join("") || empty("集計できる販売記録がありません");
   }
 
   function renderBuyers() {
@@ -986,11 +1074,13 @@
   $$('[data-sales-tab]').forEach((btn) =>
     btn.addEventListener("click", () => {
       $$('[data-sales-tab]').forEach((x) => x.classList.toggle("active", x === btn));
-      const delivery = btn.dataset.salesTab === "delivery";
-      $("#storeSalesPanel").classList.toggle("hidden", delivery);
-      $("#deliverySalesPanel").classList.toggle("hidden", !delivery);
+      const selected = btn.dataset.salesTab;
+      $("#storeSalesPanel").classList.toggle("hidden", selected !== "store");
+      $("#salesSummaryPanel").classList.toggle("hidden", selected !== "summary");
+      $("#deliverySalesPanel").classList.toggle("hidden", selected !== "delivery");
     })
   );
+  els.salesSummaryMode?.addEventListener("change", renderSalesSummary);
 
   async function init() {
     preventDoubleTapZoom();

@@ -62,7 +62,7 @@
           <img src="./icons/icon-192.png" alt="">
           <div>
             <strong>Moonlight</strong>
-            <span>閲覧専用</span>
+            <span>cafe＆bar・閲覧専用</span>
           </div>
         </div>
         <div class="top-actions">
@@ -83,19 +83,36 @@
           <div id="overviewExtraDetails" class="overview-extra-details hidden"></div>
 
           <div class="section overview-achievements-section">
-            <div class="section-title"><h2>実績</h2><span class="tiny muted">タップで詳細</span></div>
+            <div class="section-title"><h2>在籍者</h2><span id="overviewActiveCount" class="overview-group-count">0人</span></div>
             <div id="overviewAchievements" class="overview-employee-list"></div>
+          </div>
+          <div class="section overview-achievements-section overview-retired-section">
+            <div class="section-title"><h2>退職者</h2><span id="overviewRetiredCount" class="overview-group-count">0人</span></div>
+            <div id="overviewRetiredAchievements" class="overview-employee-list"></div>
           </div>
         </section>
 
         <section class="page" data-page="sales">
           <div class="page-head"><h1>販売実績</h1></div>
-          <div class="segmented">
+          <div class="segmented sales-view-tabs">
             <button type="button" class="seg active" data-sales-tab="store">店頭販売</button>
+            <button type="button" class="seg" data-sales-tab="summary">集計</button>
             <button type="button" class="seg" data-sales-tab="delivery">デリバリー</button>
           </div>
           <div id="storeSalesPanel">
             <div id="salesList" class="card-list"></div>
+          </div>
+          <div id="salesSummaryPanel" class="hidden">
+            <label class="sales-summary-mode">
+              <span>集計単位</span>
+              <select id="salesSummaryMode">
+                <option value="day">日別</option>
+                <option value="employee">従業員別</option>
+                <option value="dayEmployee">日別 × 従業員別</option>
+              </select>
+            </label>
+            <div id="salesSummaryTotals" class="stat-grid sales-summary-totals"></div>
+            <div id="salesSummaryList" class="card-list sales-summary-list"></div>
           </div>
           <div id="deliverySalesPanel" class="hidden">
             <div id="deliveryList" class="card-list"></div>
@@ -142,7 +159,7 @@
 
       <nav class="bottom-nav" aria-label="メインメニュー">
         <button type="button" class="nav-btn active" data-page-target="overview"><span>⌂</span><small>概要</small></button>
-        <button type="button" class="nav-btn" data-page-target="sales"><span>▤</span><small>販売</small></button>
+        <button type="button" class="nav-btn" data-page-target="sales"><span>▤</span><small>販売実績</small></button>
         <button type="button" class="nav-btn" data-page-target="buyers"><span>◎</span><small>購入者</small></button>
         <button type="button" class="nav-btn" data-page-target="products"><span>◇</span><small>商品</small></button>
         <button type="button" class="nav-btn" data-page-target="more"><span>•••</span><small>その他</small></button>
