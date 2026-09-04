@@ -288,3 +288,15 @@ tr.employee-detail-area:active td{background:rgba(212,175,103,.055)}
   .seg{font-size:12px;padding-left:4px;padding-right:4px}
   .sales-summary-mode{grid-template-columns:1fr;gap:7px}
 }
+
+/* v12 coin registration history */
+.coin-history-summary{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:14px}
+.coin-history-summary .stat{padding:12px}
+.coin-history-summary .stat strong{font-size:19px}
+.coin-history-total{grid-column:1/-1;border-color:rgba(214,179,101,.36);background:linear-gradient(180deg,rgba(214,179,101,.11),rgba(17,24,39,.94))}
+.coin-history-list{margin-top:12px}
+.coin-history-card{min-width:0}
+.coin-history-amount{font-size:18px;white-space:nowrap}
+.coin-history-amount.positive{color:#86efac}
+.coin-history-amount.negative{color:#fca5a5}
+.coin-history-note{margin:10px 0 0;padding-top:9px;border-top:1px solid rgba(38,52,77,.72);color:#aebbd0;font-size:11px;line-height:1.55;overflow-wrap:anywhere}

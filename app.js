@@ -47,6 +47,8 @@
     bonusSummary: $("#bonusSummary"),
     bonusCurrent: $("#bonusCurrent"),
     payoutHistory: $("#payoutHistory"),
+    coinHistorySummary: $("#coinHistorySummary"),
+    coinHistoryList: $("#coinHistoryList"),
     employeeList: $("#employeeList"),
     moreSheet: $("#moreSheet"),
     closeMoreBtn: $("#closeMoreBtn"),
@@ -285,6 +287,68 @@
       for (const k of ["food", "drink", "joint", "other", "total"]) t[k] += a[k];
     }
     return map;
+  }
+
+  function coinHistorySourceLabel(source) {
+    return ({
+      manual: "コイン登録",
+      opening: "履歴導入前",
+      initial: "初期登録",
+      adjustment: "累計修正"
+    })[source] || "コイン登録";
+  }
+
+  function coinHistoryRows() {
+    const historyProvided = Array.isArray(state.coinHistory);
+    const rows = (historyProvided ? state.coinHistory : []).map((raw, index) => {
+      const employeeName = String(raw.employeeName || raw.employee_name || "").trim();
+      const matchedEmployee = (state.employees || []).find(employee => String(employee.id) === String(raw.employeeId || raw.employee_id || ""))
+        || (state.employees || []).find(employee => String(employee.name || "") === employeeName);
+      const source = ["manual", "opening", "initial", "adjustment"].includes(raw.source) ? raw.source : "manual";
+      return {
+        id: String(raw.id || `coin-${index}`),
+        employeeId: String(matchedEmployee?.id || raw.employeeId || raw.employee_id || ""),
+        employeeName: matchedEmployee?.name || employeeName || "-",
+        amount: Math.round(num(raw.amount ?? raw.coins ?? raw.quantity ?? 0)),
+        recordedAt: String(raw.recordedAt || raw.registeredAt || ""),
+        createdAt: String(raw.createdAt || ""),
+        source,
+        note: String(raw.note || "").trim(),
+        _index: index
+      };
+    });
+
+    const registeredTotals = new Map();
+    for (const entry of rows) {
+      if (!entry.employeeId) continue;
+      registeredTotals.set(entry.employeeId, (registeredTotals.get(entry.employeeId) || 0) + entry.amount);
+    }
+    for (const employee of state.employees || []) {
+      const employeeId = String(employee.id || "");
+      const difference = Math.max(0, Math.round(num(employee.coins))) - (registeredTotals.get(employeeId) || 0);
+      if (!employeeId || difference === 0) continue;
+      rows.push({
+        id: `coin-balance-${employeeId}`,
+        employeeId,
+        employeeName: employee.name || "-",
+        amount: difference,
+        recordedAt: "",
+        createdAt: "",
+        source: historyProvided ? "adjustment" : "opening",
+        note: historyProvided ? "累計コインとの差額" : "履歴機能追加前の累計",
+        _index: rows.length
+      });
+    }
+
+    const balances = new Map();
+    return rows
+      .sort((a, b) => String(a.recordedAt || "").localeCompare(String(b.recordedAt || "")) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || a._index - b._index)
+      .map(entry => {
+        const balance = (balances.get(entry.employeeId) || 0) + entry.amount;
+        balances.set(entry.employeeId, balance);
+        return { ...entry, balance };
+      })
+      .sort((a, b) => String(b.recordedAt || "").localeCompare(String(a.recordedAt || "")) || b._index - a._index);
   }
 
   function buyerKey(v) {
@@ -914,6 +978,29 @@
         .join("") || empty("従業員がいません");
   }
 
+  function renderCoinHistory() {
+    if (!els.coinHistorySummary || !els.coinHistoryList) return;
+    const rows = coinHistoryRows();
+    const cumulativeCoins = (state.employees || []).reduce((sum, employee) => sum + Math.max(0, Math.round(num(employee.coins))), 0);
+    const employeeCount = new Set(rows.map(entry => entry.employeeId).filter(Boolean)).size;
+    els.coinHistorySummary.innerHTML = `
+      <article class="stat"><span class="label">登録履歴</span><strong>${rows.length.toLocaleString("ja-JP")}件</strong></article>
+      <article class="stat"><span class="label">対象者</span><strong>${employeeCount.toLocaleString("ja-JP")}人</strong></article>
+      <article class="stat coin-history-total"><span class="label">全員の累計コイン</span><strong>${cumulativeCoins.toLocaleString("ja-JP")}枚</strong></article>`;
+    els.coinHistoryList.innerHTML = rows.map(entry => {
+      const amount = Math.round(num(entry.amount));
+      const dateLabel = entry.recordedAt ? invoiceAt(entry.recordedAt) : "履歴導入前";
+      return `<article class="item-card coin-history-card">
+        <div class="item-top">
+          <div><div class="item-title">${esc(entry.employeeName)}</div><div class="item-meta">${dateLabel}</div></div>
+          <strong class="coin-history-amount ${amount < 0 ? "negative" : "positive"}">${amount > 0 ? "+" : ""}${amount.toLocaleString("ja-JP")}枚</strong>
+        </div>
+        <div class="pills"><span class="pill">${esc(coinHistorySourceLabel(entry.source))}</span><span class="pill">登録後 ${Math.max(0, entry.balance).toLocaleString("ja-JP")}枚</span></div>
+        ${entry.note ? `<p class="coin-history-note">${esc(entry.note)}</p>` : ""}
+      </article>`;
+    }).join("") || empty("コイン登録履歴はまだありません");
+  }
+
   function renderAll() {
     renderOverview();
     renderSales();
@@ -921,6 +1008,7 @@
     renderProducts();
     renderInventory();
     renderBonus();
+    renderCoinHistory();
     renderEmployees();
   }
 
