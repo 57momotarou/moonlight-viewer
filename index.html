@@ -66,8 +66,7 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="refreshBtn" type="button" class="icon-btn" aria-label="更新">↻</button>
-          <button id="logoutBtn" type="button" class="text-btn">ログアウト</button>
+          <button id="moreMenuBtn" type="button" class="top-menu-btn" aria-label="その他メニュー" aria-controls="moreSheet" aria-expanded="false"><span aria-hidden="true">☰</span></button>
         </div>
       </header>
 
@@ -79,8 +78,14 @@
               <p id="cloudMeta" class="muted"></p>
             </div>
           </div>
-          <button id="overviewCards" class="overview-summary-card" type="button" aria-expanded="false"></button>
-          <div id="overviewExtraDetails" class="overview-extra-details hidden"></div>
+          <section class="overview-period-section">
+            <div class="overview-period-heading"><h2>今日</h2><span id="overviewTodayLabel"></span></div>
+            <div id="overviewCards" class="overview-summary-card"></div>
+          </section>
+          <section class="overview-period-section overview-cumulative-section">
+            <div class="overview-period-heading"><h2>累計</h2><span>すべての販売記録</span></div>
+            <div id="overviewExtraDetails" class="overview-extra-details"></div>
+          </section>
 
           <div class="section overview-achievements-section">
             <div class="section-title"><h2>在籍者</h2><span id="overviewActiveCount" class="overview-group-count">0人</span></div>
@@ -96,8 +101,8 @@
           <div class="page-head"><h1>販売実績</h1></div>
           <div class="segmented sales-view-tabs">
             <button type="button" class="seg active" data-sales-tab="store">店頭販売</button>
-            <button type="button" class="seg" data-sales-tab="summary">集計</button>
             <button type="button" class="seg" data-sales-tab="delivery">デリバリー</button>
+            <button type="button" class="seg" data-sales-tab="summary">集計</button>
           </div>
           <div id="storeSalesPanel">
             <div id="salesList" class="card-list"></div>
@@ -168,22 +173,24 @@
         <button type="button" class="nav-btn" data-page-target="sales"><span>▤</span><small>販売実績</small></button>
         <button type="button" class="nav-btn" data-page-target="buyers"><span>◎</span><small>購入者</small></button>
         <button type="button" class="nav-btn" data-page-target="products"><span>◇</span><small>商品</small></button>
-        <button type="button" class="nav-btn" data-page-target="more"><span>•••</span><small>その他</small></button>
       </nav>
 
-      <div id="moreSheet" class="sheet hidden" aria-hidden="true">
+      <div id="moreSheet" class="sheet top-menu-sheet hidden" aria-hidden="true" role="menu" aria-label="その他の項目">
+        <div class="sheet-title">その他の項目</div>
         <button type="button" data-more-target="inventory">在庫管理</button>
         <button type="button" data-more-target="bonus">ボーナス</button>
         <button type="button" data-more-target="coins">コイン登録履歴</button>
         <button type="button" data-more-target="employees">従業員名簿</button>
-        <button type="button" id="closeMoreBtn">閉じる</button>
+        <div class="sheet-divider"></div>
+        <button type="button" id="refreshBtn"><span aria-hidden="true">↻</span> 更新</button>
+        <button type="button" id="logoutBtn" class="sheet-logout">ログアウト</button>
       </div>
 
       <div id="salesDetailModal" class="employee-detail-modal hidden" aria-hidden="true">
         <div class="employee-detail-backdrop" data-close-sales-detail></div>
         <section class="employee-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="salesDetailTitle">
           <div class="employee-detail-sheet-head">
-            <div><span class="muted tiny">SALES DETAIL</span><h2 id="salesDetailTitle">伝票詳細</h2></div>
+            <div><span id="salesDetailEyebrow" class="muted tiny">SALES DETAIL</span><h2 id="salesDetailTitle">伝票詳細</h2></div>
             <button id="closeSalesDetailBtn" type="button" class="icon-btn" aria-label="閉じる">×</button>
           </div>
           <div id="salesDetailContent" class="employee-detail-content"></div>

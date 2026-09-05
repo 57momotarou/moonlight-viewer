@@ -29,6 +29,7 @@
     toast: $("#toast"),
     cloudMeta: $("#cloudMeta"),
     overviewCards: $("#overviewCards"),
+    overviewTodayLabel: $("#overviewTodayLabel"),
     overviewExtraDetails: $("#overviewExtraDetails"),
     overviewAchievements: $("#overviewAchievements"),
     overviewRetiredAchievements: $("#overviewRetiredAchievements"),
@@ -50,9 +51,10 @@
     coinHistorySummary: $("#coinHistorySummary"),
     coinHistoryList: $("#coinHistoryList"),
     employeeList: $("#employeeList"),
+    moreMenuBtn: $("#moreMenuBtn"),
     moreSheet: $("#moreSheet"),
-    closeMoreBtn: $("#closeMoreBtn"),
     salesDetailModal: $("#salesDetailModal"),
+    salesDetailEyebrow: $("#salesDetailEyebrow"),
     salesDetailTitle: $("#salesDetailTitle"),
     salesDetailContent: $("#salesDetailContent"),
     closeSalesDetailBtn: $("#closeSalesDetailBtn"),
@@ -497,35 +499,54 @@
       totals.drink += amount.drink;
       totals.joint += amount.joint;
       totals.other += amount.other;
+      totals.foodQty += recordCategoryQty(record, "food");
+      totals.drinkQty += recordCategoryQty(record, "drink");
+      totals.jointQty += recordCategoryQty(record, "joint");
       return totals;
-    }, { food: 0, drink: 0, joint: 0, other: 0 });
+    }, { food: 0, drink: 0, joint: 0, other: 0, foodQty: 0, drinkQty: 0, jointQty: 0 });
     const today = new Date();
     const y = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     const todayRecords = allRecords.filter((record) => String(record.invoiceAt || record.saleDate || "").slice(0, 10) === y);
-    const todayAmount = todayRecords.reduce((total, record) => total + recordAmounts(record).total, 0);
+    const todayBreakdown = todayRecords.reduce((totals, record) => {
+      const amount = recordAmounts(record);
+      totals.food += amount.food;
+      totals.drink += amount.drink;
+      totals.joint += amount.joint;
+      totals.other += amount.other;
+      totals.total += amount.total;
+      totals.foodQty += recordCategoryQty(record, "food");
+      totals.drinkQty += recordCategoryQty(record, "drink");
+      totals.jointQty += recordCategoryQty(record, "joint");
+      return totals;
+    }, { food: 0, drink: 0, joint: 0, other: 0, total: 0, foodQty: 0, drinkQty: 0, jointQty: 0 });
     const lastPayout = [...(state.payoutHistory || [])].sort((a, b) => String(b.payoutDate || "").localeCompare(String(a.payoutDate || "")))[0];
     const buyers = buyerSummary();
     const deliveryCount = (state.deliveryOrders || []).length;
+    const cumulativeCoins = (state.employees || []).reduce((sum, employee) => sum + Math.max(0, Math.round(num(employee.coins))), 0);
 
     els.cloudMeta.textContent = "";
+    if (els.overviewTodayLabel) els.overviewTodayLabel.textContent = dateOnly(y);
     els.overviewCards.innerHTML = `
-      <span class="overview-summary-hint">タップで詳細</span>
-      <div class="overview-summary-grid">
-        <div><span>在籍人数</span><strong>${active}人</strong></div>
-        <div><span>今日の売上</span><strong>${money(todayAmount)}</strong></div>
-        <div><span>最終支給日</span><strong>${lastPayout?.payoutDate ? dateOnly(lastPayout.payoutDate) : "-"}</strong></div>
+      <div class="overview-today-total"><span>今日の売上合計</span><strong>${money(todayBreakdown.total)}</strong><small>${todayRecords.length.toLocaleString("ja-JP")}伝票</small></div>
+      <div class="overview-detail-grid">
+        ${amountCell("食べ物", money(todayBreakdown.food), qty(todayBreakdown.foodQty))}
+        ${amountCell("飲み物", money(todayBreakdown.drink), qty(todayBreakdown.drinkQty))}
+        ${amountCell("ジョイント", money(todayBreakdown.joint), qty(todayBreakdown.jointQty))}
+        ${amountCell("その他売上", money(todayBreakdown.other))}
       </div>
     `;
     els.overviewExtraDetails.innerHTML = `
       <div class="overview-detail-grid">
-        ${amountCell("食べ物売上", money(totalBreakdown.food))}
-        ${amountCell("飲み物売上", money(totalBreakdown.drink))}
-        ${amountCell("ジョイント売上", money(totalBreakdown.joint))}
+        ${amountCell("食べ物売上", money(totalBreakdown.food), qty(totalBreakdown.foodQty))}
+        ${amountCell("飲み物売上", money(totalBreakdown.drink), qty(totalBreakdown.drinkQty))}
+        ${amountCell("ジョイント売上", money(totalBreakdown.joint), qty(totalBreakdown.jointQty))}
         ${amountCell("その他売上", money(totalBreakdown.other))}
         ${amountCell("売上合計", money(allAmounts), `${allRecords.length.toLocaleString("ja-JP")}伝票`)}
-        ${amountCell("今日の伝票", `${todayRecords.length.toLocaleString("ja-JP")}件`)}
+        ${amountCell("コイン累計", `${cumulativeCoins.toLocaleString("ja-JP")}枚`)}
+        ${amountCell("在籍人数", `${active.toLocaleString("ja-JP")}人`)}
         ${amountCell("購入者", `${buyers.length.toLocaleString("ja-JP")}人`)}
         ${amountCell("デリバリー", `${deliveryCount.toLocaleString("ja-JP")}件`)}
+        ${amountCell("最終支給日", lastPayout?.payoutDate ? dateOnly(lastPayout.payoutDate) : "-")}
       </div>
       <p class="overview-cloud-note">クラウド version ${cloud.version} / ${cloud.updatedAt ? new Date(cloud.updatedAt).toLocaleString("ja-JP") : "-"}</p>
     `;
@@ -567,6 +588,16 @@
     return (state.deliveryOrders || []).find((record) => deliveryRecordKey(record) === String(key || "")) || null;
   }
 
+  function openSharedDetail(eyebrow, title, content) {
+    if (!els.salesDetailModal || !els.salesDetailContent) return;
+    if (els.salesDetailEyebrow) els.salesDetailEyebrow.textContent = eyebrow;
+    els.salesDetailTitle.textContent = title;
+    els.salesDetailContent.innerHTML = content;
+    els.salesDetailModal.classList.remove("hidden");
+    els.salesDetailModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("detail-open");
+  }
+
   function openSalesDetail(key) {
     const r = findSaleRecordByKey(key);
     if (!r || !els.salesDetailModal || !els.salesDetailContent) return;
@@ -574,8 +605,7 @@
     const emp = employeeForRecord(r);
     const customItems = Array.isArray(r.customItems) ? r.customItems : [];
     const customRows = customItems.map((item) => amountCell(item.name || "カスタム商品", qty(item.count), `${categoryLabel(item.category)} / ${money(item.totalAmount || num(item.count) * num(item.unitPrice))}`)).join("");
-    els.salesDetailTitle.textContent = "伝票詳細";
-    els.salesDetailContent.innerHTML = `
+    openSharedDetail("SALES DETAIL", "伝票詳細", `
       <div class="detail-profile-grid">
         <article><span>従業員</span><strong>${esc(emp?.name || r.employeeName || "-")}</strong></article>
         <article><span>購入者</span><strong>${esc(r.buyerName || "-")}</strong></article>
@@ -590,10 +620,7 @@
           ${amountCell("売上合計", money(a.total), "4項目の合計")}
         </div>
       </div>
-      ${customRows ? `<div class="detail-section"><h3>カスタム請求の在庫商品</h3><div class="breakdown-grid">${customRows}</div></div>` : ""}`;
-    els.salesDetailModal.classList.remove("hidden");
-    els.salesDetailModal.setAttribute("aria-hidden", "false");
-    document.body.classList.add("detail-open");
+      ${customRows ? `<div class="detail-section"><h3>カスタム請求の在庫商品</h3><div class="breakdown-grid">${customRows}</div></div>` : ""}`);
   }
 
   function closeSalesDetail() {
@@ -612,8 +639,7 @@
           amountCell("飲み物", qty(d.drinkQty)),
           amountCell("ジョイント", qty(d.jointQty))
         ].join("");
-    els.salesDetailTitle.textContent = "デリバリー詳細";
-    els.salesDetailContent.innerHTML = `
+    openSharedDetail("DELIVERY DETAIL", "デリバリー詳細", `
       <div class="detail-profile-grid">
         <article><span>注文番号</span><strong>${esc(d.orderNo || "デリバリー")}</strong></article>
         <article><span>注文者</span><strong>${esc(d.buyerName || "-")}</strong></article>
@@ -621,10 +647,7 @@
       </div>
       <div class="detail-section"><h3>商品内訳</h3>
         <div class="breakdown-grid">${itemRows}</div>
-      </div>`;
-    els.salesDetailModal.classList.remove("hidden");
-    els.salesDetailModal.setAttribute("aria-hidden", "false");
-    document.body.classList.add("detail-open");
+      </div>`);
   }
 
   function buyerMatchesName(displayName, candidate) {
@@ -738,12 +761,14 @@
           drink: 0,
           joint: 0,
           other: 0,
-          total: 0
+          total: 0,
+          records: []
         });
       }
       const group = groups.get(key);
       const amounts = recordAmounts(record);
       group.transactions += 1;
+      group.records.push(record);
       for (const name of ["food", "drink", "joint", "other", "total"]) group[name] += amounts[name];
     }
     const result = [...groups.values()];
@@ -767,21 +792,46 @@
 
     const groups = buildSalesSummaryGroups(els.salesSummaryMode?.value || "day");
     els.salesSummaryList.innerHTML = groups.map((group) => {
-      const employeeAttribute = group.employeeId ? ` data-employee-area="${esc(group.employeeId)}"` : "";
-      return `<article class="item-card sales-summary-card${group.employeeId ? " employee-detail-area" : ""}"${employeeAttribute}>
+      return `<article class="item-card sales-summary-card tap-detail-card compact-summary-card" data-sales-summary-area="${esc(group.key)}">
         <div class="item-top">
           <div><div class="item-title">${esc(group.label)}</div><div class="item-meta">取引 ${group.transactions.toLocaleString("ja-JP")}件</div></div>
           <div class="money sm">${money(group.total)}</div>
         </div>
-        <div class="breakdown-grid sales-summary-breakdown">
-          ${amountCell("食べ物売上", money(group.food))}
-          ${amountCell("飲み物売上", money(group.drink))}
-          ${amountCell("ジョイント売上", money(group.joint))}
-          ${amountCell("その他売上", money(group.other))}
-        </div>
-        ${group.employeeId ? '<span class="sales-summary-detail-hint">タップで従業員詳細</span>' : ""}
       </article>`;
     }).join("") || empty("集計できる販売記録がありません");
+  }
+
+  function openSalesSummaryDetail(key) {
+    const mode = els.salesSummaryMode?.value || "day";
+    const group = buildSalesSummaryGroups(mode).find((item) => item.key === String(key || ""));
+    if (!group) return;
+    const categoryQty = (category) => group.records.reduce((sum, record) => sum + recordCategoryQty(record, category), 0);
+    const recordRows = [...group.records]
+      .sort((a, b) => String(b.invoiceAt || b.saleDate || "").localeCompare(String(a.invoiceAt || a.saleDate || "")))
+      .map((record) => {
+        const amounts = recordAmounts(record);
+        const employee = employeeForRecord(record);
+        const parts = [
+          `食べ物 ${qty(recordCategoryQty(record, "food"))} / ${money(amounts.food)}`,
+          `飲み物 ${qty(recordCategoryQty(record, "drink"))} / ${money(amounts.drink)}`,
+          `ジョイント ${qty(recordCategoryQty(record, "joint"))} / ${money(amounts.joint)}`,
+          `その他 ${money(amounts.other)}`
+        ].map((part) => `<span>${part}</span>`).join("");
+        return `<article class="detail-sale-row detail-sale-row-expanded"><div><strong>${invoiceAt(record.invoiceAt || record.saleDate)}</strong><span>${esc(employee?.name || record.employeeName || "-")} / 購入者 ${esc(record.buyerName || "-")}</span><div class="detail-sale-breakdown">${parts}</div></div><div class="money sm">${money(amounts.total)}</div></article>`;
+      }).join("") || '<div class="empty-state">販売実績はありません</div>';
+    openSharedDetail("SALES SUMMARY", `${group.label} の集計`, `
+      <div class="detail-profile-grid">
+        <article><span>集計単位</span><strong>${mode === "day" ? "日別" : mode === "employee" ? "従業員別" : "日別 × 従業員別"}</strong></article>
+        <article><span>販売記録</span><strong>${group.transactions.toLocaleString("ja-JP")}件</strong></article>
+        <article><span>売上合計</span><strong>${money(group.total)}</strong></article>
+      </div>
+      <div class="detail-section"><h3>集計内訳</h3><div class="breakdown-grid">
+        ${amountCell("食べ物売上", money(group.food), qty(categoryQty("food")))}
+        ${amountCell("飲み物売上", money(group.drink), qty(categoryQty("drink")))}
+        ${amountCell("ジョイント売上", money(group.joint), qty(categoryQty("joint")))}
+        ${amountCell("その他売上", money(group.other))}
+      </div></div>
+      <div class="detail-section"><h3>含まれる販売記録</h3><div class="detail-list">${recordRows}</div></div>`);
   }
 
   function renderBuyers() {
@@ -832,16 +882,47 @@
     };
   }
 
+  function inventorySnapshotKey(snapshot) {
+    const index = (state.inventorySnapshots || []).indexOf(snapshot);
+    return String(snapshot?.id || `${snapshot?.capturedAt || ""}|${index}`);
+  }
+
+  function findInventorySnapshotByKey(key) {
+    return (state.inventorySnapshots || []).find((snapshot) => inventorySnapshotKey(snapshot) === String(key || "")) || null;
+  }
+
   function renderSnapshot(s, latest = false) {
+    const snapshotKey = inventorySnapshotKey(s);
     s = normalizeSnapshot(s);
-    const products = s.products
-      .map((p) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(p.name || "-", p.category))}</strong><br><span class="muted">${esc(categoryLabel(p.category))}</span> ${qty(p.count)}</div>`)
-      .join("");
-    return `<div class="inventory-block">
+    const materialTotal = ["food", "drink", "joint", "sweet"].reduce((sum, name) => sum + num(s.materials[name]), 0);
+    const productQty = s.products.reduce((sum, product) => sum + num(product.count), 0);
+    return `<article class="inventory-block tap-detail-card compact-inventory-card" data-inventory-area="${esc(snapshotKey)}">
       <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}${s.isBaseline ? ' <span class="pill role">比較基準</span>' : ""}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
-      <div class="key-values"><span>ご飯の素</span><strong>${qty(s.materials.food)}</strong><span>飲み物の素</span><strong>${qty(s.materials.drink)}</strong><span>リラックスの素</span><strong>${qty(s.materials.joint)}</strong><span>甘いものの素</span><strong>${qty(s.materials.sweet)}</strong></div>
-      ${products ? `<div class="inventory-products">${products}</div>` : ""}
-    </div>`;
+      <div class="pills"><span class="pill">素材 ${qty(materialTotal)}</span><span class="pill">商品 ${s.products.length.toLocaleString("ja-JP")}種類 / ${qty(productQty)}</span></div>
+    </article>`;
+  }
+
+  function openInventoryDetail(key) {
+    const raw = findInventorySnapshotByKey(key);
+    if (!raw) return;
+    const snapshot = normalizeSnapshot(raw);
+    const products = snapshot.products
+      .map((product) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(product.name || "-", product.category))}</strong><br><span class="muted">${esc(categoryLabel(product.category))}</span> ${qty(product.count)}</div>`)
+      .join("") || '<div class="empty-state">登録商品の在庫はありません</div>';
+    openSharedDetail("INVENTORY DETAIL", "在庫チェック詳細", `
+      <div class="detail-profile-grid">
+        <article><span>画像送信日時</span><strong>${invoiceAt(snapshot.capturedAt)}</strong></article>
+        <article><span>比較基準</span><strong>${snapshot.isBaseline ? "現在の基準" : "通常記録"}</strong></article>
+        <article><span>SPコイン</span><strong>${Math.round(snapshot.spCoins).toLocaleString("ja-JP")}枚</strong></article>
+        <article><span>登録商品</span><strong>${snapshot.products.length.toLocaleString("ja-JP")}種類</strong></article>
+      </div>
+      <div class="detail-section"><h3>素材</h3><div class="breakdown-grid">
+        ${amountCell("ご飯の素", qty(snapshot.materials.food))}
+        ${amountCell("飲み物の素", qty(snapshot.materials.drink))}
+        ${amountCell("リラックスの素", qty(snapshot.materials.joint))}
+        ${amountCell("甘いものの素", qty(snapshot.materials.sweet))}
+      </div></div>
+      <div class="detail-section"><h3>商品在庫</h3><div class="inventory-products detail-inventory-products">${products}</div></div>`);
   }
 
   function renderInventory() {
@@ -915,6 +996,35 @@
     return entries.sort((a, b) => roleIndex(a.e.role) - roleIndex(b.e.role) || String(a.e.name).localeCompare(String(b.e.name), "ja"));
   }
 
+  function bonusBreakdownMarkup(entry) {
+    if (entry.managerRemainder) {
+      return `
+        ${amountCell("ボーナス予算", money(entry.targetAmount))}
+        ${amountCell("店長以外の支給総額", money(entry.otherEmployeeTotal))}
+        ${amountCell("店長の残額", money(entry.amount), entry.managerCount > 1 ? `店長${entry.managerCount}人で均等分配` : `${money(entry.targetAmount)} − ${money(entry.otherEmployeeTotal)}`)}
+        ${amountCell("対象期間の売上", money(entry.sales), "店長の支給額には加算しません")}`;
+    }
+    return `
+      ${amountCell("役職固定給", money(entry.roleBonus), entry.e.role || "-")}
+      ${amountCell("売上加算", money(entry.salesBonus), `${money(entry.sales)} × ${entry.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
+      ${amountCell("算定コイン", `${Math.round(entry.coins).toLocaleString("ja-JP")}枚`, `${Math.round(entry.coins).toLocaleString("ja-JP")}枚 × ${money(entry.coinUnitAmount)} = ${money(entry.coinBonus)}`)}
+      ${amountCell("自動支給額", money(entry.auto), `${money(entry.roleBonus)} + ${money(entry.salesBonus)} + ${money(entry.coinBonus)} / 1,000円未満切り上げ`)}`;
+  }
+
+  function openBonusDetail(employeeId) {
+    const entry = currentBonusEntries().find((item) => String(item.e.id) === String(employeeId || ""));
+    if (!entry) return;
+    const settings = state.settings || {};
+    openSharedDetail("BONUS DETAIL", `${entry.e.name || "従業員"} のボーナス`, `
+      <div class="detail-profile-grid">
+        <article><span>役職</span><strong>${esc(entry.e.role || "-")}</strong></article>
+        <article><span>対象期間</span><strong>${dateOnly(settings.bonusStartDate)}〜${dateOnly(settings.bonusEndDate)}</strong></article>
+        <article><span>対象期間の売上</span><strong>${money(entry.sales)}</strong></article>
+        <article><span>今回の支給額</span><strong>${money(entry.amount)}</strong></article>
+      </div>
+      <div class="detail-section"><h3>算定内訳</h3><div class="breakdown-grid">${bonusBreakdownMarkup(entry)}</div></div>`);
+  }
+
   function renderBonus() {
     const settings = state.settings || {};
     const entries = currentBonusEntries();
@@ -934,22 +1044,8 @@
     els.bonusCurrent.innerHTML =
       entries
         .map((x) => {
-          const breakdown = x.managerRemainder
-            ? `
-        ${amountCell("ボーナス予算", money(x.targetAmount))}
-        ${amountCell("店長以外の支給総額", money(x.otherEmployeeTotal))}
-        ${amountCell("店長の残額", money(x.amount), x.managerCount > 1 ? `店長${x.managerCount}人で均等分配` : `${money(x.targetAmount)} − ${money(x.otherEmployeeTotal)}`)}
-        ${amountCell("対象期間の売上", money(x.sales), "店長の支給額には加算しません")}`
-            : `
-        ${amountCell("役職固定給", money(x.roleBonus), x.e.role || "-")}
-        ${amountCell("売上加算", money(x.salesBonus), `${money(x.sales)} × ${x.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
-        ${amountCell("コイン", `${Math.round(x.coins).toLocaleString("ja-JP")}枚`, `${Math.round(x.coins).toLocaleString("ja-JP")}枚 × ${money(x.coinUnitAmount)} = ${money(x.coinBonus)}`)}
-        ${amountCell("自動支給額", money(x.auto), `${money(x.roleBonus)} + ${money(x.salesBonus)} + ${money(x.coinBonus)} / 1,000円未満切り上げ`)}`;
-          return `<article class="item-card employee-detail-area" data-employee-area="${esc(x.e.id)}">
-      <div class="item-top"><div><div class="item-title">${employeeDetailButton(x.e.id, x.e.name)}</div><div class="item-meta">${esc(x.e.role || "-")}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
-      <div class="breakdown-grid">
-        ${breakdown}
-      </div>
+          return `<article class="item-card tap-detail-card compact-bonus-card" data-bonus-area="${esc(x.e.id)}">
+      <div class="item-top"><div><div class="item-title">${esc(x.e.name || "-")}</div><div class="item-meta">${esc(x.e.role || "-")}${x.managerRemainder ? " / 店長の残額" : ` / 算定コイン ${Math.round(x.coins).toLocaleString("ja-JP")}枚`}</div></div><div><div class="money">${money(x.amount)}</div><div class="money-note">支給額</div></div></div>
     </article>`;
         })
         .join("") || empty("対象従業員がいません");
@@ -1012,12 +1108,18 @@
     renderEmployees();
   }
 
+  function setMoreMenuOpen(open) {
+    if (!els.moreSheet) return;
+    els.moreSheet.classList.toggle("hidden", !open);
+    els.moreSheet.setAttribute("aria-hidden", String(!open));
+    els.moreMenuBtn?.setAttribute("aria-expanded", String(open));
+  }
+
   function showPage(name) {
     $$(".page").forEach((p) => p.classList.toggle("active", p.dataset.page === name));
     $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.pageTarget === name));
     window.scrollTo({ top: 0, behavior: "smooth" });
-    els.moreSheet.classList.add("hidden");
-    els.moreSheet.setAttribute("aria-hidden", "true");
+    setMoreMenuOpen(false);
   }
 
   async function enterViewer() {
@@ -1100,6 +1202,7 @@
   });
 
   els.refreshBtn.addEventListener("click", async () => {
+    setMoreMenuOpen(false);
     showLoading(true);
     try {
       if (swRegistration) await swRegistration.update().catch(() => {});
@@ -1113,28 +1216,25 @@
   });
 
   els.logoutBtn.addEventListener("click", () => {
+    setMoreMenuOpen(false);
     clearSession();
     location.reload();
   });
 
   $$(".nav-btn").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const name = btn.dataset.pageTarget;
-      if (name === "more") {
-        els.moreSheet.classList.toggle("hidden");
-        els.moreSheet.setAttribute("aria-hidden", String(els.moreSheet.classList.contains("hidden")));
-        return;
-      }
-      showPage(name);
+      showPage(btn.dataset.pageTarget);
     })
   );
   $$('[data-more-target]').forEach((btn) => btn.addEventListener("click", () => showPage(btn.dataset.moreTarget)));
-  els.closeMoreBtn.addEventListener("click", () => els.moreSheet.classList.add("hidden"));
-
-  els.overviewCards?.addEventListener("click", () => {
-    const opening = els.overviewExtraDetails?.classList.contains("hidden");
-    els.overviewExtraDetails?.classList.toggle("hidden", !opening);
-    els.overviewCards.setAttribute("aria-expanded", String(Boolean(opening)));
+  els.moreMenuBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setMoreMenuOpen(els.moreSheet?.classList.contains("hidden"));
+  });
+  document.addEventListener("click", (event) => {
+    if (els.moreSheet?.classList.contains("hidden")) return;
+    if (event.target.closest("#moreSheet, #moreMenuBtn")) return;
+    setMoreMenuOpen(false);
   });
 
   els.viewerScreen?.addEventListener("click", (event) => {
@@ -1143,6 +1243,12 @@
     if (deliveryArea?.dataset.deliveryArea) { event.preventDefault(); openDeliveryDetail(deliveryArea.dataset.deliveryArea); return; }
     const saleArea = event.target.closest("[data-sale-area]");
     if (saleArea?.dataset.saleArea) { event.preventDefault(); openSalesDetail(saleArea.dataset.saleArea); return; }
+    const summaryArea = event.target.closest("[data-sales-summary-area]");
+    if (summaryArea?.dataset.salesSummaryArea) { event.preventDefault(); openSalesSummaryDetail(summaryArea.dataset.salesSummaryArea); return; }
+    const inventoryArea = event.target.closest("[data-inventory-area]");
+    if (inventoryArea?.dataset.inventoryArea) { event.preventDefault(); openInventoryDetail(inventoryArea.dataset.inventoryArea); return; }
+    const bonusArea = event.target.closest("[data-bonus-area]");
+    if (bonusArea?.dataset.bonusArea) { event.preventDefault(); openBonusDetail(bonusArea.dataset.bonusArea); return; }
     const buyerArea = event.target.closest("[data-buyer-area]");
     if (buyerArea?.dataset.buyerArea) { event.preventDefault(); openBuyerDetail(buyerArea.dataset.buyerArea); return; }
     const area = event.target.closest("[data-employee-area]");
