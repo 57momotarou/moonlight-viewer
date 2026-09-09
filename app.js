@@ -69,6 +69,7 @@
   };
 
   let state = {};
+  let inventoryReportView = null;
   let cloud = { version: 0, updatedAt: "" };
   let refreshTimer = null;
   let swRegistration = null;
@@ -929,6 +930,10 @@
     const rows = [...(state.inventorySnapshots || [])].sort((a, b) => String(b.capturedAt || "").localeCompare(String(a.capturedAt || "")));
     els.inventoryLatest.innerHTML = rows[0] ? renderSnapshot(rows[0], true) : empty("在庫チェックがありません");
     els.inventoryHistory.innerHTML = rows.slice(1, 21).map((s) => renderSnapshot(s, false)).join("") || empty("過去の在庫履歴はありません");
+    if (!inventoryReportView && window.MoonlightInventoryReportUI) {
+      inventoryReportView = window.MoonlightInventoryReportUI.mount($("#inventoryReport"), () => state);
+    }
+    inventoryReportView?.refresh();
   }
 
   function periodIncludes(date, start, end) {

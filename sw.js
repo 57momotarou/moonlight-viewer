@@ -1,9 +1,12 @@
-const CACHE = "moonlight-viewer-v13";
+const CACHE = "moonlight-viewer-v16";
 const APP_ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./inventory-report.js",
+  "./inventory-report-ui.js",
+  "./inventory-report.css",
   "./config.js",
   "./manifest.json",
   "./icons/icon-192.png",

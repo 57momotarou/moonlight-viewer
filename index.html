@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./inventory-report.css">
 </head>
 <body>
   <div id="startupSplash" class="startup-splash" aria-live="polite" role="status">
@@ -136,6 +137,7 @@
 
         <section class="page" data-page="inventory">
           <div class="page-head"><h1>在庫管理</h1></div>
+          <div id="inventoryReport"></div>
           <div id="inventoryLatest"></div>
           <div class="section">
             <div class="section-title"><h2>履歴</h2></div>
@@ -228,6 +230,8 @@
   </div>
 
   <script src="./config.js"></script>
+  <script src="./inventory-report.js"></script>
+  <script src="./inventory-report-ui.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
