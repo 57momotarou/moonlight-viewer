@@ -311,8 +311,9 @@
     const loss = sum(categories, c => c.loss), increase = sum(categories, c => c.increase);
     // Without a confirmed destination, show the minimum shortage if the coin
     // difference was exchanged. Never allocate gains to products automatically.
-    const potentialLoss = !review && row.coins.materialEquivalent > 0
-      ? loss + Math.max(0, row.coins.materialEquivalent - increase) : 0;
+    const unconfirmedExchangeMaterials = review ? 0 : row.coins.materialEquivalent;
+    const exchangeExtraLoss = Math.max(0, unconfirmedExchangeMaterials - increase);
+    const potentialLoss = unconfirmedExchangeMaterials > 0 ? loss + exchangeExtraLoss : 0;
     if (!review) {
       if (row.coins.registered || row.coins.delta || row.coins.correctionCount) uncertain("コインの入庫枚数と、交換・移動の内訳を確認してください。");
       if (row.coins.materialEquivalent > 0) uncertain(`コイン差分をすべて交換した場合、素${row.coins.materialEquivalent.toLocaleString("ja-JP")}個分です。交換先は未確認です。`);
@@ -342,6 +343,7 @@
     const status = checkedLoss || checkedCoinLoss ? "shortage" : reasons.length ? "review" : "ok";
     return { status, label: ASSESSMENT_LABELS[status], reasons, categories, loss, increase, coinLoss, coinIncrease, potentialLoss,
       uncertainties, checkingPending, checkedLoss, pendingLoss, checkedCoinLoss, pendingCoinLoss, coinCheckPending: checkingPending,
+      unconfirmedExchangeMaterials, exchangeExtraLoss,
       confirmed: Boolean(review), stale: Boolean(saved && !review), review, boundaryUnconfirmed, checkedAt: review ? text(saved.checkedAt) : "",
       coinIn, coinOut, exchangedCoins, expectedCoins, coinDifference,
       exchangeMaterials: sum(categories, c => c.exchanged), stockIn: sum(categories, c => c.stockIn), stockOut: sum(categories, c => c.stockOut) };
@@ -350,9 +352,13 @@
   function assessReport(intervals, warnings) {
     const assessments = intervals.map(row => row.assessment);
     const result = {};
-    for (const field of ["loss", "increase", "coinLoss", "coinIncrease", "potentialLoss", "exchangeMaterials", "stockIn", "stockOut", "coinIn", "coinOut", "exchangedCoins", "checkedLoss", "pendingLoss", "checkedCoinLoss", "pendingCoinLoss"]) {
+    for (const field of ["loss", "increase", "coinLoss", "coinIncrease", "exchangeMaterials", "stockIn", "stockOut", "coinIn", "coinOut", "exchangedCoins", "checkedLoss", "pendingLoss", "checkedCoinLoss", "pendingCoinLoss", "unconfirmedExchangeMaterials", "exchangeExtraLoss"]) {
       result[field] = sum(assessments, a => a[field]);
     }
+    // A whole-period scenario must retain the baseline deficits in intervals
+    // with no exchange too. Adding only interval potentialLoss drops them.
+    result.potentialLoss = result.unconfirmedExchangeMaterials > 0 ? result.loss + result.exchangeExtraLoss : 0;
+    result.intervalCount = intervals.length;
     result.reviewCount = assessments.filter(a => a.status === "review").length;
     result.shortageCount = assessments.filter(a => a.status === "shortage").length;
     result.okCount = assessments.filter(a => a.status === "ok").length;
