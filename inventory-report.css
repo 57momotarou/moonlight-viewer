@@ -17,6 +17,37 @@
 .inventory-report .ir-period{margin:12px 0 0}
 .inventory-report .ir-feedback{color:#d6b365;font-size:12px}
 .inventory-report .ir-feedback:not(:empty){padding:8px 0}
+.inventory-report .ir-health{border:2px solid #58667b;border-radius:16px;background:#131e30;margin:8px 0 16px;overflow:hidden}
+.inventory-report .ir-health>summary{display:flex;align-items:center;gap:16px;min-height:132px;padding:22px;list-style:none;cursor:pointer}
+.inventory-report .ir-health>summary::-webkit-details-marker{display:none}
+.inventory-report .ir-health-icon{display:grid;place-items:center;width:48px;height:48px;flex:0 0 48px;border:1px solid currentColor;border-radius:50%;font-size:28px;font-weight:700}
+.inventory-report .ir-health-copy{display:grid;gap:6px;min-width:0;flex:1;overflow-wrap:anywhere}
+.inventory-report .ir-health-copy>strong{font-size:clamp(22px,3vw,30px);line-height:1.35}
+.inventory-report .ir-health-copy>span{color:#e2e8f0;font-size:14px}
+.inventory-report .ir-health-copy>small{font-size:12px;color:#b6c3d5;font-weight:400}
+.inventory-report .ir-health-copy>.ir-unchecked{color:#f5d891}
+.inventory-report .ir-health-arrow{font-size:27px;color:#d0d9e7;transition:transform .15s ease}
+.inventory-report .ir-health[open] .ir-health-arrow{transform:rotate(90deg)}
+.inventory-report .ir-health[open]>summary{border-bottom:1px solid #34445f}
+.inventory-report .ir-health-ok{border-color:#429e79;background:#102a24;color:#a5f3c9}
+.inventory-report .ir-health-shortage{border-color:#d76270;background:#321c27;color:#ffb6bf}
+.inventory-report .ir-health-review{border-color:#b58a39;background:#2c261a;color:#f5d891}
+.inventory-report .ir-health-empty{color:#b6c3d5}
+.inventory-report .ir-health .ir-content{color:#f8fafc;background:#101b2b}
+.inventory-report .ir-movement-form{margin-top:16px}
+.inventory-report .ir-movement-form fieldset{min-width:0;margin:14px 0;padding:14px;border:1px solid #34445f;border-radius:10px}
+.inventory-report .ir-movement-form legend{padding:0 6px;font-size:13px;color:#d6b365}
+.inventory-report .ir-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.inventory-report .ir-form-grid label,.inventory-report .ir-note-editor{display:grid;gap:6px;margin:0;min-width:0;font-size:12px;color:#b6c3d5}
+.inventory-report .ir-movement-form input[type=number],.inventory-report .ir-movement-form textarea{display:block;min-width:0;width:100%;border:1px solid #43546e;background:#0b1423;color:#f8fafc;border-radius:8px;padding:10px;min-height:44px;font:inherit;font-size:16px}
+.inventory-report .ir-movement-form textarea{resize:vertical}
+.inventory-report .ir-movement-form input:focus-visible,.inventory-report .ir-movement-form textarea:focus-visible{outline:2px solid #d6b365;outline-offset:2px}
+.inventory-report .ir-movement-category{padding:10px 0;border-bottom:1px solid #2c3d58}
+.inventory-report .ir-movement-category>strong{display:block;font-size:13px;margin-bottom:8px}
+.inventory-report .ir-check-label{display:flex;align-items:flex-start;gap:10px;font-size:13px;margin:14px 0}
+.inventory-report .ir-check-label input{flex:0 0 20px;min-width:20px;width:20px;height:20px;margin:3px 0}
+.inventory-report .ir-form-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.inventory-report .ir-form-actions .ir-button{white-space:normal;text-align:center}
 .inventory-report .ir-result-head{padding:18px 0 8px}
 .inventory-report .ir-result-head>strong{font-size:16px}
 .inventory-report .ir-result-head p{margin:5px 0 0}
@@ -84,5 +115,10 @@
   .inventory-report .ir-interval .ir-grid{grid-template-columns:minmax(0,1fr)}
   .inventory-report .ir-item{gap:10px}
   .inventory-report .ir-checks{padding:12px}
+  .inventory-report .ir-health>summary{padding:16px 12px;gap:10px}
+  .inventory-report .ir-health-icon{width:36px;height:36px;flex-basis:36px;font-size:22px}
+  .inventory-report .ir-health-copy>span{font-size:12px}
+  .inventory-report .ir-movement-form fieldset{padding:10px}
 }
-@media(prefers-reduced-motion:reduce){.inventory-report .ir-detail>summary:after{transition:none}}
+@media(max-width:380px){.inventory-report .ir-form-grid{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){.inventory-report .ir-detail>summary:after,.inventory-report .ir-health-arrow{transition:none}}
