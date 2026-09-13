@@ -1,4 +1,4 @@
-const CACHE = "moonlight-viewer-v17";
+const CACHE = "moonlight-viewer-v18";
 const APP_ASSETS = [
   "./",
   "./index.html",
