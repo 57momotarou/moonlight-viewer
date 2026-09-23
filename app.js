@@ -80,7 +80,8 @@
   const qty = (v) => `${Math.round(num(v)).toLocaleString("ja-JP")}個`;
   const roundUpThousand = (v) => num(v) > 0 ? Math.ceil(num(v) / 1000) * 1000 : 0;
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const categoryLabel = (v) => ({ food: "食べ物", drink: "飲み物", joint: "ジョイント" }[v] || v || "-");
+  const categoryKey = (v) => window.MoonlightInventoryReport.normalizeCategory(v);
+  const categoryLabel = (v) => ({ food: "食べ物", drink: "飲み物", joint: "ジョイント" }[categoryKey(v)] || v || "-");
   const statusLabel = (e) => (e?.status === "retired" ? "退職" : "在籍");
   const activeEmployee = (e) => e?.status !== "retired";
 
@@ -254,9 +255,9 @@
     let joint = num(r.jointQty) * num(r.jointUnitPrice ?? (num(r.jointQty) ? 50000 : 0));
     for (const item of Array.isArray(r.customItems) ? r.customItems : []) {
       const amount = num(item.totalAmount) || num(item.count) * num(item.unitPrice);
-      if (item.category === "food") food += amount;
-      if (item.category === "drink") drink += amount;
-      if (item.category === "joint") joint += amount;
+      if (categoryKey(item.category) === "food") food += amount;
+      if (categoryKey(item.category) === "drink") drink += amount;
+      if (categoryKey(item.category) === "joint") joint += amount;
     }
     const other = num(r.otherAmount);
     return { food, drink, joint, other, total: food + drink + joint + other };
@@ -264,7 +265,7 @@
 
   function recordCategoryQty(r, category) {
     const custom = (Array.isArray(r.customItems) ? r.customItems : [])
-      .filter((item) => item.category === category)
+      .filter((item) => categoryKey(item.category) === category)
       .reduce((sum, item) => sum + num(item.count), 0);
     return num(r[`${category}Qty`]) + custom;
   }
@@ -867,17 +868,18 @@
 
   function canonicalInventoryName(name, category = "") {
     const raw = String(name || "").trim();
-    const key = productNameKey(raw);
-    if (!key) return raw;
-    const catalog = (state.productCatalog || []).filter((item) => item && item.name && item.active !== false && (!category || item.category === category));
-    const exact = catalog.find((item) => [item.name, item.stashName, ...(Array.isArray(item.aliases) ? item.aliases : [])].some((value) => productNameKey(value) === key));
-    return exact?.name || raw;
+    return window.MoonlightInventoryReport.catalogResolver(state)(raw, category)?.name || raw;
   }
 
   function normalizeSnapshot(s) {
+    const resolve = window.MoonlightInventoryReport.catalogResolver(state);
     return {
       ...s,
-      products: Array.isArray(s.products) ? s.products : [],
+      products: (Array.isArray(s.products) ? s.products : []).map(product => {
+        const matched = resolve(product.name, product.category, product.productCatalogId || product.product_catalog_id)
+          || resolve(product.recognizedName, "", "");
+        return { ...product, name: matched?.name || product.name, category: matched?.category || categoryKey(product.category) };
+      }),
       materials: s.materials || {},
       spCoins: num(s.spCoins)
     };

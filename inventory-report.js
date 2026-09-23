@@ -24,7 +24,7 @@
 
   function category(value) {
     const v = text(value).toLowerCase();
-    if (["food", "食べ物", "foodrow"].includes(v)) return "food";
+    if (["food", "食べ物", "ご飯", "ごはん", "同時回復", "同時回復商品", "foodrow"].includes(v)) return "food";
     if (["drink", "飲み物", "drinkrow"].includes(v)) return "drink";
     if (["joint", "ジョイント", "jointrow"].includes(v)) return "joint";
     return "";
@@ -74,10 +74,9 @@
       if (byId) return byId;
       const nameKey = key(name);
       if (!nameKey) return null;
-      const candidates = catalog.filter(p => !cat || p.category === cat);
-      const exact = candidates.find(p => p.names.includes(nameKey));
-      if (exact) return exact;
-      const partial = candidates.filter(p => p.names.some(n => n.includes(nameKey) || nameKey.includes(n)));
+      const exact = catalog.filter(p => p.names.includes(nameKey));
+      if (exact.length) return exact.length === 1 ? exact[0] : null;
+      const partial = catalog.filter(p => p.names.some(n => n.includes(nameKey) || nameKey.includes(n)));
       return partial.length === 1 ? partial[0] : null;
     };
   }
@@ -88,7 +87,7 @@
       const name = text(item.name || item.label || item.recognizedName || item.unresolvedName || "商品名なし");
       const cat = category(item.category || item.rowCategory);
       const id = text(item.productCatalogId || item.product_catalog_id);
-      const matched = resolve(name, cat, id);
+      const matched = resolve(name, cat, id) || resolve(item.recognizedName || item.unresolvedName, "", "");
       const resolvedCategory = matched?.category || cat;
       if (!resolvedCategory) unknownProducts++;
       return {
@@ -225,16 +224,16 @@
   }
 
   const STOCK_KEYS = [...CATEGORIES, "sweet"];
-  const ASSESSMENT_LABELS = { ok: "記録上は問題なし", shortage: "不足あり（記録上）", review: "確認が必要", empty: "比較データ不足" };
+  const ASSESSMENT_LABELS = { ok: "記録上は問題なし", shortage: "説明できない減少あり", review: "確認が必要", empty: "比較データ不足" };
 
   function describeAssessment(a) {
     if (!a) return "比較元を確認してください";
     const n = value => value.toLocaleString("ja-JP");
     const parts = [a.label];
-    if (a.checkedLoss) parts.push(`照合後の不足 ${n(a.checkedLoss)}個`);
-    if (a.pendingLoss) parts.push(`確認前の減少差 ${n(a.pendingLoss)}個`);
-    if (a.checkedCoinLoss) parts.push(`照合後のコイン不足 ${n(a.checkedCoinLoss)}枚`);
-    if (a.coinCheckPending) parts.push("コインは確認待ち");
+    if (a.checkedLoss) parts.push(`説明できない減少 少なくとも${n(a.checkedLoss)}個分`);
+    if (a.pendingLoss) parts.push(`未判定の減少 ${n(a.pendingLoss)}個分`);
+    if (a.unknownSales) parts.push("数量不明の売上あり");
+    if (a.coinCheckPending) parts.push("コイン・日時の記録を確認");
     return parts.join(" / ");
   }
 
@@ -277,99 +276,124 @@
     return { version: 1, startId: row.start.id, basis: movementBasis(row), ...values, checkedAt: new Date().toISOString() };
   }
 
+  // A timing confirmation never assigns unknown sales or exchange destinations.
+  function createTimingReview(row, input = {}) {
+    if (!row?.start || !row?.end || row.start.capturedAt >= row.end.capturedAt) throw new Error("比較できる在庫の区間を選んでください。");
+    return { version: 2, kind: "timing", startId: row.start.id, basis: movementBasis(row),
+      boundaryOrderConfirmed: input.boundaryOrderConfirmed === true,
+      note: text(input.note).slice(0, 1000), checkedAt: new Date().toISOString() };
+  }
+
+  // Find a LOWER BOUND over every possible destination of complete exchange sets.
+  // Full sets fill category increases first; at most one partial useful set per
+  // category follows. No guessed allocation is ever written to source records.
+  function exchangeBalance(categories, sets, rate) {
+    const baseLoss = sum(categories, c => Math.max(0, -c.exchangeNeed));
+    const fullCapacity = sum(categories, c => Math.floor(Math.max(0, c.exchangeNeed) / rate));
+    const remainingSets = Math.max(0, sets - fullCapacity);
+    const remainders = categories.map(c => Math.max(0, c.exchangeNeed) % rate).sort((a, b) => b - a);
+    const partialCovered = sum(remainders.slice(0, remainingSets), n => n);
+    const minimumLoss = baseLoss + remainingSets * rate - partialCovered;
+    const netLoss = sets * rate - sum(categories, c => c.exchangeNeed);
+    return { minimumLoss, minimumIncrease: minimumLoss - netLoss, netLoss, baseLoss };
+  }
+
   function assessInterval(row, globalUncertainties = []) {
     const saved = row.end.movementReview;
-    let review = null;
+    const basisMatches = saved && [1, 2].includes(saved.version) && saved.startId === row.start.id && saved.basis === movementBasis(row);
+    const review = basisMatches ? saved : null;
+    const stale = Boolean(saved && !basisMatches);
     const reasons = [...globalUncertainties], uncertainties = [...globalUncertainties];
     const uncertain = reason => { reasons.push(reason); uncertainties.push(reason); };
-    if (saved) {
-      try {
-        if (saved.version !== 1 || saved.startId !== row.start.id || saved.basis !== movementBasis(row)) throw new Error("stale");
-        review = movementValues(saved);
-      } catch {
-        uncertain("在庫・請求書・コイン履歴、または比較区間が変わりました。交換・入出庫の記録を確認し直してください。");
-      }
-    }
+    const boundaryUnconfirmed = Boolean(row.boundaryEvents?.length && !review?.boundaryOrderConfirmed);
+    if (boundaryUnconfirmed) uncertain(stale
+      ? "元記録が変わりました。在庫チェックと同じ分の記録の前後関係を確認し直してください。"
+      : "在庫チェックと同じ分の記録があります。開始と同じ分は対象外、終了と同じ分は対象です。前後関係を確認してください。");
+    if (row.dateOnlyEvents?.length) uncertain("同じ日付に時刻不明の記録があります。実際の時刻が分かるまで、区間の判定は未確定です。");
+    if (row.unknownDeliveryCount || row.start.unknownProducts || row.end.unknownProducts) uncertain("在庫またはデリバリーに、分類を確認する商品があります。");
+    if (row.amountMismatchCount) uncertain("請求金額と売上内訳が一致しない記録があります。保存された個数だけで仮計算しています。");
+    const legacyAdjustment = Boolean(saved && saved.version === 1 &&
+      (number(saved.coinOut) || number(saved.coinIn) !== row.coins.registered || STOCK_KEYS.some(c => number(saved.stockIn?.[c]) || number(saved.stockOut?.[c]))));
+    if (legacyAdjustment) uncertain("旧方式の入出庫調整が保存されています。現在の運用では計算に加えません。元記録を確認し、不要な旧確認を解除してください。");
+    const coinUsed = row.coins.before + row.coins.registered - row.coins.after;
+    const negativeCoinRecords = row.events.some(e => e.kind === "coin" && e.source === "manual" && e.amount < 0);
+    const coinArithmeticValid = coinUsed >= 0 && coinUsed % 10 === 0 && !negativeCoinRecords;
+    if (coinUsed < 0) uncertain(`コインが登録分より${Math.abs(coinUsed).toLocaleString("ja-JP")}枚多く、交換枚数を確定できません。登録枚数・日時・在庫の読み取りを確認してください。`);
+    if (coinUsed > 0 && coinUsed % 10) uncertain(`コイン差分${coinUsed.toLocaleString("ja-JP")}枚が10枚単位になりません。端数${coinUsed % 10}枚を除いた交換量は参考値です。`);
+    if (negativeCoinRecords) uncertain("負のコイン登録があります。実際に集めた枚数の記録を確認してください。");
+    // Every positive manual registration is the farmed quantity for this interval.
+    // Opening balances and cumulative corrections do not represent new coins.
+    const exchangedCoins = row.coins.exchangeSets * 10;
+    const exchangeMaterials = row.coins.materialEquivalent;
     const categories = STOCK_KEYS.map(cat => {
       const original = row.categories.find(c => c.category === cat) || {
         category: cat, label: MATERIALS.sweet, before: row.start.materials.sweet, after: row.end.materials.sweet,
         productBefore: 0, productAfter: 0, materialBefore: row.start.materials.sweet, materialAfter: row.end.materials.sweet,
         saleQty: 0, deliveryQty: 0, outgoing: 0, delta: row.end.materials.sweet - row.start.materials.sweet
       };
-      const exchanged = (review?.exchangeSets[cat] || 0) * row.coins.materialsPerSet;
-      const stockIn = review?.stockIn[cat] || 0, stockOut = review?.stockOut[cat] || 0;
-      const expected = original.before + exchanged + stockIn - original.outgoing - stockOut;
-      const difference = original.after - expected;
-      return { ...original, exchanged, stockIn, stockOut, expected, difference, exchangePending: !review && row.coins.materialEquivalent > 0,
-        loss: Math.max(0, -difference), increase: Math.max(0, difference) };
+      const exchangeNeed = original.after - original.before + original.outgoing;
+      return { ...original, exchangeNeed, expected: null, exchanged: null, stockIn: 0, stockOut: 0,
+        difference: exchangeNeed, loss: Math.max(0, -exchangeNeed), increase: Math.max(0, exchangeNeed),
+        exchangePending: exchangedCoins > 0 };
     });
-    const coinIn = review ? review.coinIn : row.coins.registered;
-    const coinOut = review?.coinOut || 0;
-    const exchangedCoins = review ? sum(STOCK_KEYS, cat => review.exchangeSets[cat]) * 10 : 0;
-    const expectedCoins = row.coins.before + coinIn - coinOut - exchangedCoins;
-    const coinDifference = row.coins.after - expectedCoins;
-    const loss = sum(categories, c => c.loss), increase = sum(categories, c => c.increase);
-    // Without a confirmed destination, show the minimum shortage if the coin
-    // difference was exchanged. Never allocate gains to products automatically.
-    const unconfirmedExchangeMaterials = review ? 0 : row.coins.materialEquivalent;
-    const exchangeExtraLoss = Math.max(0, unconfirmedExchangeMaterials - increase);
-    const potentialLoss = unconfirmedExchangeMaterials > 0 ? loss + exchangeExtraLoss : 0;
-    if (!review) {
-      if (row.coins.registered || row.coins.delta || row.coins.correctionCount) uncertain("コインの入庫枚数と、交換・移動の内訳を確認してください。");
-      if (row.coins.materialEquivalent > 0) uncertain(`コイン差分をすべて交換した場合、素${row.coins.materialEquivalent.toLocaleString("ja-JP")}個分です。交換先は未確認です。`);
-      if (row.coins.remainder) uncertain(`コイン差分に10枚単位に満たない${row.coins.remainder}枚があります。`);
-      if (increase) uncertain("在庫が計算より多くなっています。交換・補充の内訳を記録してください。");
-    } else {
-      if (increase) reasons.push("交換・補充・使用を反映しても、在庫が計算より多くなっています。");
-      if (coinDifference > 0) reasons.push("記録した入出庫を反映しても、コインが計算より多くなっています。");
-    }
-    if (categories.some(c => c.expected < 0) || expectedCoins < 0) uncertain("計算上の在庫がマイナスです。入庫漏れや販売・使用の個数を確認してください。");
-    if (row.otherCount && !review?.nonStockSalesConfirmed) uncertain("その他売上など、カテゴリ・個数が未確定の請求書があります。");
-    if (row.unknownDeliveryCount || row.start.unknownProducts || row.end.unknownProducts) uncertain("分類を確認する商品があります。");
-    if (row.amountMismatchCount) uncertain("請求金額と内訳が一致しない記録があります。");
-    if (row.dateOnlyEvents?.length) uncertain("同じ日付に時刻不明の記録があります。00:00として扱った記録が、この区間に属するか確認してください。");
-    const boundaryUnconfirmed = Boolean(row.boundaryEvents?.length && !review?.boundaryOrderConfirmed);
-    if (boundaryUnconfirmed) uncertain("在庫チェックと同じ分の記録があります。区間への含め方を確認してください。");
-    const coinLoss = review ? Math.max(0, -coinDifference) : 0;
-    const coinIncrease = review ? Math.max(0, coinDifference) : 0;
-    // A residual based on unresolved inputs is not a checked shortage. Keep it
-    // visible, but never silently add it to shortages from reconciled intervals.
+    const balance = exchangeBalance(categories, row.coins.exchangeSets, row.coins.materialsPerSet);
+    const beforeTotal = sum(categories, c => c.before), afterTotal = sum(categories, c => c.after);
+    const outgoing = sum(categories, c => c.outgoing), expectedTotal = beforeTotal + exchangeMaterials - outgoing;
+    if (expectedTotal < 0) uncertain("交換総数を含めても販売数が在庫を超えています。数量・日時・重複の記録を確認してください。");
+    const recordUncertain = uncertainties.length > 0;
+    const unknownSales = row.otherCount > 0 || row.unknownDeliveryCount > 0 || row.amountMismatchCount > 0;
+    if (row.otherCount) uncertain(`数量不明のその他売上などが${row.otherCount}件あります。金額から種類・個数を推定せず、減少分が販売か不足かは未判定にします。`);
     const checkingPending = uncertainties.length > 0;
+    const loss = balance.minimumLoss, increase = balance.minimumIncrease;
     const checkedLoss = checkingPending ? 0 : loss, pendingLoss = checkingPending ? loss : 0;
-    const checkedCoinLoss = checkingPending ? 0 : coinLoss;
-    const pendingCoinLoss = checkingPending ? Math.max(0, -coinDifference) : 0;
+    if (increase) reasons.push(`交換先をどの素に振り分けても、少なくとも${increase.toLocaleString("ja-JP")}個分の増加が説明できません。数量不明の売上で増加は説明できないため、在庫・コイン・請求書の記録を確認してください。`);
+    if (checkedLoss) reasons.push(`記録されたコイン差分をすべて交換した場合、交換先をどう選んでも少なくとも${checkedLoss.toLocaleString("ja-JP")}個分の減少が説明できません。`);
     for (const c of categories) Object.assign(c, { checkingPending,
       checkedLoss: checkingPending ? 0 : c.loss, pendingLoss: checkingPending ? c.loss : 0 });
-    const status = checkedLoss || checkedCoinLoss ? "shortage" : reasons.length ? "review" : "ok";
-    return { status, label: ASSESSMENT_LABELS[status], reasons, categories, loss, increase, coinLoss, coinIncrease, potentialLoss,
-      uncertainties, checkingPending, checkedLoss, pendingLoss, checkedCoinLoss, pendingCoinLoss, coinCheckPending: checkingPending,
-      unconfirmedExchangeMaterials, exchangeExtraLoss,
-      confirmed: Boolean(review), stale: Boolean(saved && !review), review, boundaryUnconfirmed, checkedAt: review ? text(saved.checkedAt) : "",
-      coinIn, coinOut, exchangedCoins, expectedCoins, coinDifference,
-      exchangeMaterials: sum(categories, c => c.exchanged), stockIn: sum(categories, c => c.stockIn), stockOut: sum(categories, c => c.stockOut) };
+    const status = checkedLoss ? "shortage" : reasons.length ? "review" : "ok";
+    return { mode: "operations", status, label: ASSESSMENT_LABELS[status], reasons, uncertainties,
+      categories, beforeTotal, afterTotal, outgoing, expectedTotal, difference: afterTotal - expectedTotal,
+      loss, increase, categoryBaseLoss: balance.baseLoss, checkedLoss, pendingLoss, checkingPending,
+      unknownSales, unknownSalesCount: row.events.filter(e => e.kind === "sale" && (e.otherAmount > 0 || e.unclassified || (e.invoiceAmount > 0 && Math.abs(e.totalAmount - e.invoiceAmount) >= 1))).length + row.unknownDeliveryCount, otherAmount: row.otherAmount,
+      recordUncertain, coinArithmeticValid, coinCheckPending: !coinArithmeticValid || recordUncertain,
+      coinUsed, coinIn: row.coins.registered, coinOut: 0, exchangedCoins, exchangeMaterials,
+      coinBefore: row.coins.before, coinAfter: row.coins.after,
+      expectedCoins: row.coins.before + row.coins.registered - exchangedCoins,
+      coinDifference: row.coins.after - row.coins.before - row.coins.registered + exchangedCoins,
+      coinLoss: 0, checkedCoinLoss: 0, pendingCoinLoss: 0, coinIncrease: Math.max(0, -coinUsed),
+      stockIn: 0, stockOut: 0, potentialLoss: 0, unconfirmedExchangeMaterials: 0, exchangeExtraLoss: 0,
+      confirmed: Boolean(review?.boundaryOrderConfirmed), stale, review, legacyAdjustment,
+      boundaryUnconfirmed, checkedAt: text(review?.checkedAt) };
   }
 
   function assessReport(intervals, warnings) {
     const assessments = intervals.map(row => row.assessment);
-    const result = {};
-    for (const field of ["loss", "increase", "coinLoss", "coinIncrease", "exchangeMaterials", "stockIn", "stockOut", "coinIn", "coinOut", "exchangedCoins", "checkedLoss", "pendingLoss", "checkedCoinLoss", "pendingCoinLoss", "unconfirmedExchangeMaterials", "exchangeExtraLoss"]) {
-      result[field] = sum(assessments, a => a[field]);
-    }
-    // A whole-period scenario must retain the baseline deficits in intervals
-    // with no exchange too. Adding only interval potentialLoss drops them.
-    result.potentialLoss = result.unconfirmedExchangeMaterials > 0 ? result.loss + result.exchangeExtraLoss : 0;
+    const first = assessments[0], last = assessments.at(-1);
+    const result = { mode: "operations" };
+    for (const field of ["loss", "increase", "categoryBaseLoss", "coinLoss", "coinIncrease", "exchangeMaterials", "stockIn", "stockOut", "coinIn", "coinOut", "exchangedCoins", "checkedLoss", "pendingLoss", "checkedCoinLoss", "pendingCoinLoss", "unconfirmedExchangeMaterials", "exchangeExtraLoss", "outgoing", "unknownSalesCount", "otherAmount"]) result[field] = sum(assessments, a => a[field]);
+    result.potentialLoss = 0;
+    result.beforeTotal = first.beforeTotal;
+    result.afterTotal = last.afterTotal;
+    result.expectedTotal = result.beforeTotal + result.exchangeMaterials - result.outgoing;
+    result.difference = result.afterTotal - result.expectedTotal;
+    result.coinBefore = first.coinBefore;
+    result.coinAfter = last.coinAfter;
+    result.coinUsed = sum(assessments, a => a.coinUsed);
     result.intervalCount = intervals.length;
     result.reviewCount = assessments.filter(a => a.status === "review").length;
     result.shortageCount = assessments.filter(a => a.status === "shortage").length;
     result.okCount = assessments.filter(a => a.status === "ok").length;
     result.pendingCount = result.reviewCount;
     result.checkingPending = assessments.some(a => a.checkingPending);
+    result.recordUncertain = assessments.some(a => a.recordUncertain);
+    result.unknownSales = assessments.some(a => a.unknownSales);
     result.coinCheckPending = assessments.some(a => a.coinCheckPending);
-    result.expectedCoins = intervals[0].coins.before + result.coinIn - result.coinOut - result.exchangedCoins;
-    result.coinDifference = intervals.at(-1).coins.after - result.expectedCoins;
+    result.coinArithmeticValid = assessments.every(a => a.coinArithmeticValid);
+    result.expectedCoins = first.coinBefore + result.coinIn - result.exchangedCoins;
+    result.coinDifference = last.coinAfter - result.expectedCoins;
     result.confirmedCount = assessments.filter(a => a.confirmed).length;
     result.reasons = [...new Set([...warnings.filter(w => w.blocking !== false).map(w => w.title), ...assessments.flatMap(a => a.reasons)])];
-    result.status = result.checkedLoss || result.checkedCoinLoss ? "shortage" : result.reasons.length ? "review" : "ok";
+    result.status = result.checkedLoss ? "shortage" : result.reasons.length ? "review" : "ok";
     result.label = ASSESSMENT_LABELS[result.status];
     result.categories = STOCK_KEYS.map(cat => {
       const rows = assessments.map(a => a.categories.find(c => c.category === cat));
@@ -377,9 +401,11 @@
       const c = { ...first, after: last.after, productAfter: last.productAfter, materialAfter: last.materialAfter, delta: last.after - first.before };
       c.exchangePending = rows.some(row => row.exchangePending);
       c.checkingPending = rows.some(row => row.checkingPending);
-      for (const field of ["saleQty", "deliveryQty", "outgoing", "exchanged", "stockIn", "stockOut", "loss", "increase", "checkedLoss", "pendingLoss"]) c[field] = sum(rows, row => row[field]);
-      c.expected = c.before + c.exchanged + c.stockIn - c.outgoing - c.stockOut;
-      c.difference = c.after - c.expected;
+      for (const field of ["saleQty", "deliveryQty", "outgoing", "stockIn", "stockOut", "loss", "increase", "checkedLoss", "pendingLoss"]) c[field] = sum(rows, row => row[field]);
+      c.expected = null;
+      c.exchanged = null;
+      c.exchangeNeed = c.after - c.before + c.outgoing;
+      c.difference = c.exchangeNeed;
       return c;
     });
     return result;
@@ -471,7 +497,7 @@
       ...(endpointItems.get(id) || { ...changes.reference, before: 0, after: 0, delta: 0 }),
       increase: changes.increase, decrease: changes.decrease
     })).sort((a, b) => (b.increase + b.decrease) - (a.increase + a.decrease) || a.name.localeCompare(b.name, "ja"));
-    if (summary.otherCount) warn("other-sales", `数量・分類を確認する請求書 ${summary.otherCount}件`, `その他売上 $${Math.round(summary.otherAmount).toLocaleString("en-US")} は数量へ換算していません。販売実績の詳細でカテゴリ・個数を割り振ると再計算されます。`);
+    if (summary.otherCount) warn("other-sales", `数量・分類を確認する請求書 ${summary.otherCount}件`, `その他売上 $${Math.round(summary.otherAmount).toLocaleString("en-US")} は数量へ換算しません。種類・個数が分からないまま保存でき、その区間の減少は販売か不足かを未判定にします。`);
     if (summary.unknownDeliveryCount) warn("delivery-items", `分類不明の商品を含むデリバリー ${summary.unknownDeliveryCount}件`, "保存済みのカテゴリ別個数だけで照合しています。デリバリー履歴で数量と割り振りを確認してください。");
     if (summary.amountMismatchCount) warn("sale-amount", `請求金額と内訳が異なる記録 ${summary.amountMismatchCount}件`, "数量は保存済みの個数を使っています。その他売上から割り振った場合は金額の二重計上がないかも確認してください。");
     // Missing dates and ambiguous snapshots can change which interval owns a
@@ -482,9 +508,9 @@
     const boundaryWarning = warnings.find(w => w.code === "boundary");
     if (boundaryWarning) boundaryWarning.blocking = intervals.some(r => r.assessment.boundaryUnconfirmed);
     const otherWarning = warnings.find(w => w.code === "other-sales");
-    if (otherWarning) otherWarning.blocking = intervals.some(r => r.otherCount && !r.assessment.review?.nonStockSalesConfirmed);
-    const negativeExpected = sum(intervals, r => r.assessment.categories.filter(c => c.expected < 0).length);
-    if (negativeExpected) warn("negative-expected", `開始在庫より販売数が多い区間・カテゴリ ${negativeExpected}件`, "補充記録がないか、請求書の重複・日時・個数や在庫の読み取り結果を確認してください。");
+    if (otherWarning) otherWarning.blocking = true;
+    const negativeExpected = intervals.filter(r => r.assessment.expectedTotal < 0).length;
+    if (negativeExpected) warn("negative-expected", `交換を含む在庫総数より販売数が多い区間 ${negativeExpected}件`, "販売・コイン・在庫の数量、日時、重複を確認してください。");
     const afterEnd = allEvents.filter(e => e.at > end.capturedAt);
     const afterCounts = { sales: afterEnd.filter(e => e.kind === "sale").length,
       deliveries: afterEnd.filter(e => e.kind === "delivery").length, coins: afterEnd.filter(e => e.kind === "coin").length };
@@ -500,6 +526,6 @@
     return build({ ...state, inventorySnapshots: snapshots }, { startId: endpoints[0].id, endId: endpoints[1].id }).assessment || null;
   }
 
-  return { build, dateTime, coinExchangeForInterval, createMovementReview, movementBasis, assessPair, describeAssessment,
+  return { build, normalizeCategory: category, catalogResolver, dateTime, coinExchangeForInterval, createMovementReview, createTimingReview, movementBasis, assessPair, describeAssessment,
     COIN_EXCHANGE_CHANGE_AT, CATEGORIES, LABELS, MATERIALS, STOCK_KEYS, ASSESSMENT_LABELS };
 });

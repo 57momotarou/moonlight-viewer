@@ -14,33 +14,21 @@
 
   function categoryHtml(row, key, open = false, interval = false) {
     const badges = [badge(`実在庫の増減 ${signed(row.delta)}`)];
-    if (row.checkedLoss) badges.push(badge(`照合後の不足 ${qty(row.checkedLoss)}`, "ir-loss"));
-    if (row.pendingLoss) badges.push(badge(`確認前の減少差 ${qty(row.pendingLoss)}`, "ir-gain"));
-    if (row.increase) badges.push(badge(`増加差 ${qty(row.increase)}`, "ir-gain"));
-    if (row.exchangePending) badges.push(badge("交換先の確認待ち", "ir-gain"));
-    else if (row.checkingPending) badges.push(badge("記録の確認待ち", "ir-gain"));
-    else if (!row.loss && !row.increase) badges.push(badge("数量一致", "ir-ok"));
-    let note = "";
-    if (row.materialAfter < row.materialBefore && row.productAfter > row.productBefore && row.difference === 0 && !row.exchanged && !row.stockIn && !row.stockOut) {
-      note = '<p class="ir-note">素材が減り、商品が増えています。素1個から商品1個を作った場合の変化と数量上は整合します。</p>';
-    }
+    if (row.checkedLoss) badges.push(badge(`最低 ${qty(row.checkedLoss)}の減少差`, "ir-loss"));
+    if (row.pendingLoss) badges.push(badge(`未判定の減少 ${qty(row.pendingLoss)}`, "ir-gain"));
+    if (row.exchangePending) badges.push(badge("交換先は不明"));
     const content = `<dl class="ir-grid ir-equation">
       ${pair("開始在庫（商品＋素）", qty(row.before))}
-      ${pair("確認済みのコイン交換", `＋${qty(row.exchanged || 0)}`)}
-      ${pair("その他の補充", `＋${qty(row.stockIn || 0)}`)}
-      ${pair("店頭販売", `−${qty(row.saleQty)}`)}
-      ${pair("デリバリー", `−${qty(row.deliveryQty)}`)}
-      ${pair("販売以外の使用・移動", `−${qty(row.stockOut || 0)}`)}
-      ${pair(row.checkingPending ? "仮の終了予定数（確認前）" : "計算上の終了在庫", qty(row.expected))}
-      ${pair("実際の終了在庫", qty(row.after))}
-      ${pair(interval ? "実在庫 − 計算上の在庫" : "期間全体の差（増加差 − 減少差）", signed(row.difference), row.checkingPending ? "ir-gain" : row.difference < 0 ? "ir-loss" : row.difference > 0 ? "ir-gain" : "ir-ok")}
-    </dl><dl class="ir-grid">
+      ${pair("店頭販売（個数が分かる分）", qty(row.saleQty))}
+      ${pair("デリバリー（個数が分かる分）", qty(row.deliveryQty))}
+      ${pair("終了在庫（商品＋素）", qty(row.after))}
+      ${pair("終了 − 開始 ＋ 個数が分かる販売", signed(row.exchangeNeed))}
+      ${pair("この種類に交換した素の数", row.exchangePending ? "不明（総数で照合）" : "交換差分なし")}
       ${pair("商品の実数", `${num(row.productBefore)} → ${qty(row.productAfter)}`)}
       ${pair("対応する素の実数", `${num(row.materialBefore)} → ${qty(row.materialAfter)}`)}
-      ${pair(interval ? "照合後の不足" : "照合後の不足の合計", row.checkedLoss || !row.checkingPending ? qty(row.checkedLoss) : "未確定", row.checkedLoss ? "ir-loss" : "")}
-      ${pair(interval ? "確認前の減少差" : "確認前の減少差の合計", qty(row.pendingLoss), "ir-gain")}
-      ${pair(interval ? "説明がついていない増加" : "各区間の増加差の合計", qty(row.increase), "ir-gain")}
-    </dl>${row.checkingPending ? '<p class="ir-note">確認前の減少差は、不正や紛失が確定した数ではありません。交換・使用・分類・日時などを確認すると、予定数と判定を再計算します。</p>' : ""}${!interval ? '<p class="ir-note">実在庫の増減は開始と終了の実数の差です。減少差・増加差は、途中の区間ごとに販売や入出庫を差し引いた差の合計で、意味が異なります。</p>' : ""}${note}`;
+    </dl><p class="ir-note">交換先や数量不明の売上をこの種類へ割り振っていません。販売を戻した増減には、素への交換による補充と数量不明の販売が含まれます。商品を作るだけなら商品＋素の合計は変わりません。</p>
+    ${row.loss ? `<p class="ir-note">${interval ? "この区間" : "区間ごとの合計"}で、個数が分かる販売を超えて減っている分は ${qty(row.loss)}です。${row.checkingPending ? "数量不明の販売や記録の未確認事項があるため、不足とは確定しません。" : "この種類への交換を0回としても残る減少です。"}</p>` : ""}
+    ${!interval ? '<p class="ir-note">種類ごとの減少差を、先頭の全体の差に重ねて加算しません。期間の差が0でも、途中の区間の差は残して表示します。</p>' : ""}`;
     return detail(key, row.label, badges.join(""), content, open);
   }
 
@@ -59,26 +47,20 @@
   }
 
   function coinsHtml(row, key, open = false) {
-    const c = row.coins;
+    const c = row.coins, a = row.assessment;
     const multiple = c.intervalCount > 1;
-    const breakdown = c.exchangeBreakdown || [c];
-    const rateLines = breakdown.map(part => `<p>10枚 → 素${num(part.materialsPerSet)}個：${coin(part.decreaseEquivalent)}の減少相当から ${num(part.exchangeSets)}回・素 ${qty(part.materialEquivalent)}相当${multiple ? `（${num(part.intervalCount)}区間）` : ""}</p>`).join("");
-    const grossNote = multiple ? `<p>区間別の減少相当は計 ${coin(c.intervalDecreaseEquivalent)}、交換候補の合計は素 ${qty(c.materialEquivalent)}です。各区間の換算結果を合算し、途中のコイン増加とは相殺していません。</p>` : "";
-    const changeNote = (c.rateChangeIntervalCount ?? (c.spansRateChange ? 1 : 0)) > 0
-      ? '<p class="ir-note">切替日時をまたぐ区間は、終了側の新しい換算を適用しています。9/3→9/4の在庫差分は10枚→素100個です。実際の交換日時を推定して前後に振り分ける計算ではありません。</p>' : "";
-    const matchesExchange = c.materialEquivalent > 0 && c.remainder === 0 && row.loss === 0 && row.increase === c.materialEquivalent && row.start.materials.sweet === row.end.materials.sweet;
-    const matchNote = matchesExchange ? `<p class="ir-note">3カテゴリの増加差 ${qty(row.increase)} は、この交換候補の合計と数量上は一致します。実際の交換先と入庫時刻を確認してください。</p>` : "";
-    const coinIncreaseNote = c.difference > 0 ? `<p class="ir-note">登録分を加えてもSPコインが ${coin(c.difference)} 多くなっています。コイン登録漏れ・別の入庫・画像の読み取りを確認してください。</p>` : "";
+    const rateLines = (c.exchangeBreakdown || [c]).map(part => `<p>10枚 → 素${num(part.materialsPerSet)}個：${num(part.exchangeSets)}回分 → 素 ${qty(part.materialEquivalent)}${multiple ? `（${num(part.intervalCount)}区間）` : ""}</p>`).join("");
     const content = `<dl class="ir-grid">
-      ${pair("在庫内のSPコイン", `${num(c.before)} → ${coin(c.after)}（${signed(c.delta, "枚")}）`)}
-      ${pair("期間内のコイン登録（正の枚数）", coin(c.registered))}
-      ${pair("累計修正・初期登録・負の登録", `${signed(c.correction, "枚")} / ${num(c.correctionCount)}件`)}
-      ${pair("登録分が全て入庫した場合", coin(c.expected))}
-      ${pair("その場合の実在庫との差", signed(c.difference, "枚"))}
-      ${pair(multiple ? "開始・終了から見た減少相当" : "その場合の使用・移動等に相当", coin(c.decreaseEquivalent))}
-    </dl><div class="ir-callout"><strong>交換した場合の参考値</strong>${rateLines}${grossNote}<p>10枚単位に満たない分${multiple ? "（各区間の合計）" : ""}は ${coin(c.remainder)}です。</p></div>
-    <p class="ir-note">換算は各区間の終了在庫日時で判定します。${esc(date(engine.COIN_EXCHANGE_CHANGE_AT))}より前は10枚→素50個、同時刻以降は10枚→素100個です。</p>${changeNote}${matchNote}${coinIncreaseNote}
-    <p class="ir-note">上の参考計算は、正のコイン登録分がすべて入庫し、差分が交換に使われた場合の仮定です。区間ごとに記録した実際の交換・入出庫は、先頭の判定とカテゴリ別内訳に反映します。累計修正・初期登録・負の登録は自動で入庫に加えません。</p>`;
+      ${pair("開始のSPコイン", coin(c.before))}
+      ${pair("期間内に集めたコイン（登録分）", `＋${coin(c.registered)}`)}
+      ${pair("終了のSPコイン", `−${coin(c.after)}`)}
+      ${pair(multiple ? "期間全体の差分（区間別の式は各区間へ）" : "交換に使われたと考えられる枚数", signed(c.before + c.registered - c.after, "枚"))}
+      ${pair("初期残高・累計修正など（入庫に含めない）", `${signed(c.correction, "枚")} / ${num(c.correctionCount)}件`)}
+    </dl><div class="ir-callout"><strong>${a?.coinCheckPending ? "コイン記録に確認事項あり・参考の交換量" : "コイン差分から計算した交換量"}</strong>${rateLines}
+      <p>10枚単位に満たない端数${multiple ? "の区間別合計" : ""}：${coin(c.remainder)}。端数や登録分を超える増加がある区間は、交換量を確定せず確認対象にします。</p></div>
+      ${multiple ? `<p class="ir-note">区間別の減少相当は合計${coin(c.intervalDecreaseEquivalent)}、10枚単位の交換分は${coin(a.exchangedCoins)}です。登録分より増えた区間の${coin(a.coinIncrease)}とは相殺せず、各区間の計算を残しています。</p>` : ""}
+      <p class="ir-note">登録したコインがスタッシュへ入り、減ったコインは素への交換に使われる運用を前提にしています。交換先の素は入力不要です。コインの減少を交換として数えるため、差が出てもコイン側と商品・素側のどちらに原因があるかまでは特定できません。</p>
+      <p class="ir-note">区間の終了在庫日時が${esc(date(engine.COIN_EXCHANGE_CHANGE_AT))}より前なら10枚→素50個、それ以降は100個です。9/3→9/4は100個で計算し、複数区間は各区間の交換量を足します。</p>`;
     return detail(key, "コインと交換の照合", badge(`SP ${signed(c.delta, "枚")}`) + badge(`登録 ${coin(c.registered)}`), content, open);
   }
 
@@ -104,22 +86,30 @@
 
   function assessmentContent(a) {
     const kpi = (label, value, cls = "") => `<article class="ir-stat"><span>${esc(label)}</span><strong class="${cls}">${esc(value)}</strong></article>`;
-    const checkedStock = a.checkedLoss || !a.checkingPending ? qty(a.checkedLoss) : "未確定";
-    const checkedCoins = a.checkedCoinLoss ? `${coin(a.checkedCoinLoss)}不足${a.coinCheckPending ? "・未確認あり" : ""}` : a.coinCheckPending ? "確認待ち" : "0枚不足";
-    return `<div class="ir-stats">${kpi("照合後の不足", checkedStock, a.checkedLoss ? "ir-loss" : a.checkingPending ? "ir-gain" : "")}${kpi("確認前の減少差", qty(a.pendingLoss), a.pendingLoss ? "ir-gain" : "")}${kpi("コインの照合", checkedCoins, a.checkedCoinLoss ? "ir-loss" : a.coinCheckPending ? "ir-gain" : "")}${kpi("説明がついていない増加", qty(a.increase), a.increase ? "ir-gain" : "")}</div>
-      <p class="ir-note">確認済みの交換で入庫 ${qty(a.exchangeMaterials)}。${a.pendingLoss ? `確認前の減少差 ${qty(a.pendingLoss)} は照合後の不足に加算していません。` : ""}${a.pendingCoinLoss ? `入出庫を確認する前のコイン減少差は ${coin(a.pendingCoinLoss)}です。交換等を含む仮の差で、コイン不足とは確定していません。` : ""}</p>
-      ${a.potentialLoss ? `<p class="ir-callout"><strong>交換を仮定した減少差（参考） ${qty(a.potentialLoss)}</strong><br>${a.intervalCount ? "全区間の" : "この区間の"}減少差 ${qty(a.loss)} ＋ 交換を仮定すると加わる差 ${qty(a.exchangeExtraLoss)} ＝ ${qty(a.potentialLoss)}。<br>未確認区間のコイン登録がすべて入庫し、その差分をすべて素に交換した場合の計算です。照合後の不足・確認前の減少差を含むため、別に加算しません。実際の交換先・入庫枚数を記録して照合してください。</p>` : ""}
-      ${a.coinIncrease ? `<p class="ir-gain">コインが計算より ${coin(a.coinIncrease)} 多くなっています。</p>` : ""}
-      ${a.reasons.length ? `<div class="ir-checks"><strong>確認すること</strong><ul>${a.reasons.map(reason => `<li>${esc(reason)}</li>`).join("")}</ul></div>` : a.status === "ok" ? '<p class="ir-ok">保存済みの販売・在庫・入出庫の数量が一致し、未解決の確認事項はありません。</p>' : '<p class="ir-loss">入出庫を反映しても不足が残っています。区間ごとの記録を確認してください。</p>'}
-      <p class="ir-note">照合後の不足と確認前の減少差を分け、カテゴリ別・区間別に残します。他の増加と相殺しません。照合後の不足も登録済み記録に基づく差で、原因の断定ではありません。「問題なし」は表示期間内の登録済み記録の照合結果です。</p>`;
+    const checked = a.checkedLoss ? `少なくとも${num(a.checkedLoss)}個分` : a.checkingPending ? "未判定の区間あり" : "0個分";
+    return `<div class="ir-stats">${kpi("説明できない減少（在庫換算）", checked, a.checkedLoss ? "ir-loss" : a.checkingPending ? "ir-gain" : "")}${kpi("未判定の減少（在庫換算）", `${num(a.pendingLoss)}個分`, "ir-gain")}${kpi("数量不明の売上等", a.unknownSales ? `${num(a.unknownSalesCount)}件` : "なし", a.unknownSales ? "ir-gain" : "")}${kpi(a.recordUncertain ? "増加の差（記録確認前）" : "説明できない増加（在庫換算）", `少なくとも${num(a.increase)}個分`, a.increase ? "ir-gain" : "")}</div>
+      <dl class="ir-grid ir-equation">
+      ${pair("開始の商品＋全種類の素", qty(a.beforeTotal))}
+      ${pair(a.coinCheckPending ? "コイン差分による交換量（参考）" : "コイン差分による交換量", `＋${qty(a.exchangeMaterials)}`)}
+      ${pair("個数が分かる販売・デリバリー", `−${qty(a.outgoing)}`)}
+      ${pair("数量不明の販売を引く前の予定数", qty(a.expectedTotal))}
+      ${pair("実際の終了在庫", qty(a.afterTotal))}
+      ${pair(a.intervalCount > 1 ? "期間の純差（終了 − 予定）" : "総数の差（終了 − 予定）", signed(a.difference))}
+      </dl>
+      ${a.unknownSales ? '<p class="ir-callout"><strong>その他売上などの個数が分からないため、減少の原因は未判定です。</strong><br>種類や個数は入力しなくても保存できます。金額を単価で割ったり、在庫の差を販売数として登録したりはしません。差が0でも、数量不明の売上が残る区間は「問題なし」にしません。</p>' : ""}
+      <p class="ir-note">全種類の総数と、1回の交換単位（素50個または100個）で種類別の増減を照合します。「少なくとも」は、交換先をどう選んでも残る最小の差です。交換先を商品記録へ自動登録する計算ではありません。</p>
+      <p class="ir-note">${a.intervalCount > 1 ? "先頭の減少・増加は区間別の差を合計し、途中の増加で減少を相殺しません。期間の純差とは異なります。" : "種類ごとの増減を相殺して問題なしにしないよう、交換単位も照合します。"}登録したコインがすべてスタッシュへ入り、コインの減少分を交換した前提です。</p>
+      ${a.reasons.length ? `<div class="ir-checks"><strong>判定の理由</strong><ul>${a.reasons.map(reason => `<li>${esc(reason)}</li>`).join("")}</ul></div>` : '<p class="ir-ok">登録された販売・コイン・在庫は、交換先が不明でも数量上は整合しています。</p>'}
+      <p class="ir-note">この判定は記録上の整合性です。確認事項がある区間の増加の差も参考値です。不正の有無や、差が出た原因・人物を断定するものではありません。</p>`;
   }
 
   function healthHtml(report, all = false) {
     const a = report.assessment;
     const status = a?.status || "empty", label = a?.label || engine.ASSESSMENT_LABELS.empty;
-    const hint = !a ? report.message : status === "ok" ? "在庫・販売・入出庫の記録が一致しています" : status === "shortage"
-      ? `${a.checkedLoss ? `照合後の在庫不足 ${qty(a.checkedLoss)}` : ""}${a.checkedLoss && a.checkedCoinLoss ? " / " : ""}${a.checkedCoinLoss ? `照合後のコイン不足 ${coin(a.checkedCoinLoss)}` : ""}${a.pendingLoss ? ` / 確認前の減少差 ${qty(a.pendingLoss)}` : ""}${a.checkingPending ? " / 未確認の区間あり" : ""}`
-      : a.pendingLoss ? `確認前の減少差 ${qty(a.pendingLoss)} / 原因は未確定です` : `確認事項 ${num(a.reasons.length)}件${a.coinCheckPending ? " / コインの照合は確認待ち" : ""}`;
+    const hint = !a ? report.message : status === "ok" ? "販売・コイン・在庫が数量上は整合しています" : status === "shortage"
+      ? `説明できない減少 少なくとも${num(a.checkedLoss)}個分${a.checkingPending ? " / 未判定の区間もあります" : ""}`
+      : a.unknownSales ? `数量不明の売上あり / 減少が販売か不足かは未判定${a.increase ? " / 増加にも差があります" : ""}`
+      : a.pendingLoss ? `未判定の減少 ${num(a.pendingLoss)}個分 / 記録を確認してください` : "コイン・在庫・販売の記録に差があります";
     const icon = { ok: "✓", shortage: "!", review: "!", empty: "—" }[status];
     const period = report.start && report.end ? `${date(report.start.capturedAt)} → ${date(report.end.capturedAt)}` : "異なる日時の在庫が2回分必要です";
     const unchecked = Object.values(report.afterEnd || {}).reduce((total, value) => total + value, 0);
@@ -128,24 +118,16 @@
 
   function movementHtml(row, index, editable = false, all = false) {
     const a = row.assessment, saved = row.end.movementReview;
-    const values = a.review || saved || { coinIn: row.coins.registered, coinOut: 0 };
-    const inputValue = value => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
-    const entry = (name, label, value, unit) => `<label><span>${esc(label)}（${unit}）</span><input type="number" name="${name}" min="0" max="1000000000" step="1" required value="${inputValue(value)}" inputmode="numeric"></label>`;
-    const materialLabel = cat => engine.MATERIALS[cat];
-    const savedInfo = a.confirmed ? `<p class="ir-ok">この区間の交換・入出庫を反映済みです。</p><p class="ir-note">記録日時 ${esc(a.checkedAt)}</p><dl class="ir-grid">${pair("コインの実際の入庫", coin(a.coinIn))}${pair("交換に使用したコイン", coin(a.exchangedCoins))}${pair("交換以外のコイン出庫", coin(a.coinOut))}${pair("計算上のコイン残高", coin(a.expectedCoins))}${pair("実際との差", signed(a.coinDifference, "枚"))}</dl>${a.review.note ? `<p class="ir-callout">${esc(a.review.note)}</p>` : ""}` :
-      `<p class="ir-note">${a.stale ? "元記録または区間が変わったため、以前の入出庫記録は計算に使っていません。内容を確認して記録し直してください。" : "交換・補充・移動があった場合は、実際の内訳を記録すると判定に反映します。"}</p>`;
-    if (!editable || all) return detail(`interval-${index}-movements`, "交換・入出庫の記録", badge(a.confirmed ? "反映済み" : a.stale ? "再確認が必要" : "未登録"), savedInfo + (!a.confirmed ? '<p class="ir-note">Windows版のこの区間を開くと、交換先や補充・使用・移動を登録できます。</p>' : ""), all);
-    const form = `<form class="ir-movement-form" data-ir-movement="${index}">
-      <p class="ir-note">${date(row.start.capturedAt)} より後 ～ ${date(row.end.capturedAt)} までの実際の入出庫を入力します。画像の在庫数は変更しません。</p>
-      <fieldset><legend>コイン</legend><div class="ir-form-grid">${entry("coinIn", "実際に在庫へ入れたコイン", values.coinIn, "枚")}${entry("coinOut", "交換以外で使用・移動したコイン", values.coinOut, "枚")}</div><p class="ir-note">この区間の正のコイン登録は ${coin(row.coins.registered)}。未入庫の実績は、実際の入庫枚数から除いてください。</p></fieldset>
-      <fieldset><legend>コインから素への交換</legend><p class="ir-note">1回＝10枚 → 素${num(row.coins.materialsPerSet)}個。交換先ごとに回数を入力します。コイン差分の参考は ${coin(row.coins.decreaseEquivalent)}（素${qty(row.coins.materialEquivalent)}相当）です。</p><div class="ir-form-grid">${engine.STOCK_KEYS.map(cat => entry(`exchangeSets.${cat}`, materialLabel(cat), values.exchangeSets?.[cat], "回")).join("")}</div></fieldset>
-      <fieldset><legend>コイン交換以外の補充・販売以外の使用や移動</legend><p class="ir-note">商品と対応する素を合わせた数量です。素から商品を作るだけの移動や、登録済みの販売数は入力しません。</p>${engine.STOCK_KEYS.map(cat => `<div class="ir-movement-category"><strong>${esc(engine.LABELS[cat] || materialLabel(cat))}</strong><div class="ir-form-grid">${entry(`stockIn.${cat}`, "補充", values.stockIn?.[cat], "個")}${entry(`stockOut.${cat}`, "使用・移動", values.stockOut?.[cat], "個")}</div></div>`).join("")}</fieldset>
-      ${row.boundaryEvents?.length ? `<label class="ir-check-label"><input name="boundaryOrderConfirmed" type="checkbox"${values.boundaryOrderConfirmed ? " checked" : ""}><span>同じ分の記録の前後関係を確認した（開始と同じ分は開始在庫に含まれ、終了と同じ分は終了在庫の前に完了）</span></label>` : ""}
-      ${row.otherCount ? `<label class="ir-check-label"><input name="nonStockSalesConfirmed" type="checkbox"${values.nonStockSalesConfirmed ? " checked" : ""}><span>この区間のその他・未分類売上は、すべて在庫が動かない売上で、商品の販売を含まないことを確認した（理由をメモに入力）</span></label><p class="ir-note">お祭りの商品など、在庫が動く販売はチェックせず、販売実績の詳細でカテゴリ・個数を割り振ってください。</p>` : ""}
-      <label class="ir-note-editor"><span>メモ</span><textarea name="note" maxlength="1000" rows="2" placeholder="補充・使用・移動の理由や、コイン登録分との違い">${esc(values.note || "")}</textarea></label>
-      <p class="ir-note">数値は実際の入出庫に合わせてください。補充・使用・移動、登録枚数と異なる入庫には理由が必要です。</p>
-      <div class="ir-form-actions"><button type="submit" class="ir-button ir-primary">この内容を記録して再計算</button>${saved ? `<button type="button" class="ir-button" data-ir-clear-movement="${index}">入出庫の記録を解除</button>` : ""}</div><p role="status" class="ir-feedback" data-ir-form-feedback></p></form>`;
-    return detail(`interval-${index}-movements`, "交換・入出庫を登録／編集", badge(a.confirmed ? "反映済み" : a.stale ? "再確認が必要" : "未登録"), savedInfo + form);
+    if (!row.boundaryEvents?.length && !saved) return "";
+    const note = saved?.note ? `<p class="ir-note">保存メモ：${esc(saved.note)}</p>` : "";
+    const legacy = saved?.version === 1 ? `<p class="ir-note">旧方式の確認記録は保持しています。現在の計算は登録コイン・実在庫・請求書から行います。</p><dl class="ir-grid">${pair("以前のコイン入庫・出庫", `${coin(saved.coinIn)} / ${coin(saved.coinOut)}`)}${engine.STOCK_KEYS.map(cat => pair(engine.LABELS[cat] || engine.MATERIALS[cat], `交換 ${num(saved.exchangeSets?.[cat])}回 / 補充 ${qty(saved.stockIn?.[cat])} / 使用・移動 ${qty(saved.stockOut?.[cat])}`)).join("")}</dl>` : "";
+    const description = '<p class="ir-note">在庫チェックと同じ分の記録は、開始と同じ分なら対象外、終了と同じ分なら対象です。実際の順序が違う場合は元記録の日時を修正してください。</p>';
+    if (!editable || all) return detail(`interval-${index}-movements`, "日時の確認・保存メモ", badge(a.boundaryUnconfirmed ? "前後関係を確認" : a.confirmed ? "確認済み" : "保存記録あり"), description + legacy + note, all);
+    const form = `<form class="ir-movement-form" data-ir-movement="${index}">${description}${legacy}
+      ${row.boundaryEvents?.length ? `<label class="ir-check-label"><input name="boundaryOrderConfirmed" type="checkbox"${a.review?.boundaryOrderConfirmed ? " checked" : ""}><span>同じ分の記録の前後関係を確認した（開始分は開始在庫に含まれ、終了分は終了在庫の前に完了）</span></label>` : ""}
+      <label class="ir-note-editor"><span>メモ</span><textarea name="note" maxlength="1000" rows="2">${esc(saved?.note || "")}</textarea></label>
+      <div class="ir-form-actions"><button type="submit" class="ir-button ir-primary">日時の確認を保存</button>${saved ? `<button type="button" class="ir-button" data-ir-clear-movement="${index}">保存した確認を解除</button>` : ""}</div><p role="status" class="ir-feedback" data-ir-form-feedback></p></form>`;
+    return detail(`interval-${index}-movements`, "日時の確認・保存メモ", badge(a.boundaryUnconfirmed ? "前後関係を確認" : "確認の編集"), form);
   }
 
   function intervalBody(row, index, all = false, editable = false) {
@@ -163,7 +145,7 @@
     const s = report.summary;
     const timeline = report.intervals.map((row, i) => {
       const a = row.assessment;
-      const meta = badge(a.label, a.status === "ok" ? "ir-ok" : a.status === "shortage" ? "ir-loss" : "ir-gain") + (a.checkedLoss ? badge(`照合後の不足 ${qty(a.checkedLoss)}`, "ir-loss") : "") + (a.pendingLoss ? badge(`確認前の減少差 ${qty(a.pendingLoss)}`, "ir-gain") : "") + (a.checkedCoinLoss ? badge(`コイン不足 ${coin(a.checkedCoinLoss)}`, "ir-loss") : "");
+      const meta = badge(a.label, a.status === "ok" ? "ir-ok" : a.status === "shortage" ? "ir-loss" : "ir-gain") + (a.checkedLoss ? badge(`説明できない減少 ${num(a.checkedLoss)}個分`, "ir-loss") : "") + (a.pendingLoss ? badge(`未判定の減少 ${num(a.pendingLoss)}個分`, "ir-gain") : "") + (a.checkedCoinLoss ? badge(`コイン不足 ${coin(a.checkedCoinLoss)}`, "ir-loss") : "");
       const title = `${date(row.start.capturedAt)} → ${date(row.end.capturedAt)}`;
       return all ? detail(`interval-${i}`, title, meta, intervalBody(row, i, true), true) :
         `<details class="ir-detail ir-interval" data-ir-key="interval-${i}" data-ir-lazy="interval" data-ir-index="${i}"><summary><span>${esc(title)}</span><span class="ir-meta">${meta}</span></summary><div class="ir-content" data-ir-content></div></details>`;
@@ -171,14 +153,15 @@
     const after = report.afterEnd;
     const afterNote = after.sales || after.deliveries || after.coins ? `<p class="ir-note">選択した終了日時より後：店頭 ${after.sales}件 / デリバリー ${after.deliveries}件 / コイン ${after.coins}件。今回の比較には含みません。新しい在庫を終了に選ぶと、その時点まで照合できます。</p>` : "";
     return `<p class="ir-note">在庫 ${report.intervals.length + 1}回・${report.intervals.length}区間を照合 / 店頭 ${s.saleCount}件・デリバリー ${s.deliveryCount}件・コイン ${s.coinCount}件</p>
-      ${detail("timeline", "区間ごとの判定・交換の記録", badge(`照合後の不足 ${report.assessment.shortageCount}区間 / 確認待ち ${report.assessment.reviewCount}区間 / 一致 ${report.assessment.okCount}区間`), timeline, all)}
+      ${detail("timeline", "区間ごとの判定・計算の内訳", badge(`減少の差 ${report.assessment.shortageCount}区間 / 未判定・要確認 ${report.assessment.reviewCount}区間 / 一致 ${report.assessment.okCount}区間`), timeline, all)}
       <div class="ir-category-list">${report.assessment.categories.map(c => categoryHtml(c, `category-${c.category}`, all)).join("")}</div>
       ${itemsHtml(s.items, "items", all)}
       ${coinsHtml(s, "coins", all)}
       ${evidenceHtml(report.events, "events", all, all)}
       ${issues ? detail("checks", "記録の確認事項", badge(`${report.warnings.filter(w => w.blocking !== false).length}件未解決`), issues, all) : ""}
       ${afterNote}
-      ${detail("method", "集計方法", "", '<p>商品＋対応する素をカテゴリ別に比較します。計算上の在庫＝開始在庫＋確認済みの交換＋その他の補充−店頭販売−デリバリー−販売以外の使用・移動。素1個から商品1個を作る前提です。甘いものの素も個別に照合します。</p><p>コインの計算上の残高＝開始枚数＋実際の入庫−交換に使った枚数−交換以外の出庫。交換先が未確認の差分は、交換した場合の不足を参考表示し、「問題なし」とは判定しません。</p><p>開始と同じ分の記録は含めず、終了と同じ分は含めます。その他売上の金額から個数・カテゴリは推測しません。</p><p>後から請求書・在庫・コイン履歴を追加・修正すると再計算します。以前に確認した入出庫と元記録が変わった場合は再確認になります。保存済みの実在庫は書き換えません。iPhoneは更新で取得したデータを使います。</p>', all)}`;
+      ${detail("method", "集計方法", "", '<p>商品と対応する素を合わせ、甘いものの素も含む全種類の総数を比較します。素1個から商品1個を作る作業では総数は変わりません。</p><p>交換枚数＝開始コイン＋期間内に集めた登録コイン−終了コイン。10枚ごとに素100個（旧仕様は50個）へ交換したとして、全体の予定数＝開始総数＋交換総数−個数が分かる店頭販売−デリバリーを計算します。交換先の入力は不要です。</p><p>交換先ごとの回数は分からないため、全種類のどこへ交換したとしても残る最小の減少・増加を確認します。無料配布・使用・移動や外部からの補充はない運用です。総数が一致していても、種類別の増減が交換単位で説明できないときは差を表示します。</p><p>その他売上の金額から個数・種類を推測しません。数量不明の売上がある区間の減少は、販売か不足かを判定できません。コイン端数や日時・読み取りの問題がある区間も未判定になります。</p><p>開始と同じ分の記録は含めず、終了と同じ分は含めます。後から請求書・在庫・コインを追加・修正すると再計算します。保存された実在庫は書き換えません。iPhoneは同期・更新した同じデータで表示します。</p>', all)}`;
+
   }
 
   function mount(container, getState, options = {}) {
@@ -209,7 +192,7 @@
       report = engine.build(getState(), choices);
       for (const field of ["startId", "endId"]) if (choices[field] && !report.snapshots.some(s => s.id === choices[field])) choices[field] = "";
       const options = (field, automatic) => `<option value="">${esc(automatic)}</option>` + report.snapshots.map(s => `<option value="${esc(s.id)}"${choices[field] === s.id ? " selected" : ""}>${esc(date(s.capturedAt))}${s.isBaseline ? "（基準）" : ""}</option>`).join("");
-      container.innerHTML = `<div class="ir-heading"><div><h3>在庫レポート</h3><p class="ir-note">在庫・販売・交換・入出庫を照合</p></div><button type="button" class="ir-button" data-ir-control="save"${report.status !== "ready" ? " disabled" : ""}>レポートを保存</button></div>
+      container.innerHTML = `<div class="ir-heading"><div><h3>在庫レポート</h3><p class="ir-note">販売・コイン・在庫の総数を照合</p></div><button type="button" class="ir-button" data-ir-control="save"${report.status !== "ready" ? " disabled" : ""}>レポートを保存</button></div>
         ${healthHtml(report)}
         ${detail("period", "比較する期間", "", `<div class="ir-controls"><label>比較開始<select data-ir-control="startId">${options("startId", `自動：比較基準${report.baseline ? ` ${date(report.baseline.capturedAt)}` : ""}`)}</select></label>
         <label>比較終了<select data-ir-control="endId">${options("endId", `自動：最新の在庫${report.snapshots.length ? ` ${date(report.snapshots.at(-1).capturedAt)}` : ""}`)}</select></label>
@@ -263,17 +246,15 @@
         if (!current || engine.movementBasis(current) !== engine.movementBasis(previous)) throw new Error("元記録が変わりました。「再計算」してから、内容を確認してください。");
         let saved = null;
         if (!clear) {
-          const value = name => form.querySelector(`[name="${name}"]`)?.value;
-          const input = { coinIn: value("coinIn"), coinOut: value("coinOut"), note: value("note"),
-            boundaryOrderConfirmed: form.querySelector('[name="boundaryOrderConfirmed"]')?.checked === true,
-            nonStockSalesConfirmed: form.querySelector('[name="nonStockSalesConfirmed"]')?.checked === true };
-          for (const field of ["exchangeSets", "stockIn", "stockOut"]) input[field] = Object.fromEntries(engine.STOCK_KEYS.map(cat => [cat, value(`${field}.${cat}`)]));
-          saved = engine.createMovementReview(current, input);
+          saved = engine.createTimingReview(current, {
+            note: form.querySelector('[name="note"]')?.value || "",
+            boundaryOrderConfirmed: form.querySelector('[name="boundaryOrderConfirmed"]')?.checked === true
+          });
         }
         form.dataset.irSaving = "true";
         await options.saveMovementReview(current.end.id, saved);
         refresh();
-        container.querySelector("[data-ir-feedback]").textContent = clear ? "入出庫の記録を解除して再計算しました。" : "交換・入出庫を記録して再計算しました。";
+        container.querySelector("[data-ir-feedback]").textContent = clear ? "保存した確認を解除して再計算しました。" : "日時の確認を保存して再計算しました。";
       } catch (error) {
         feedback.textContent = error.message || "保存できませんでした。";
       } finally { delete form.dataset.irSaving; }
