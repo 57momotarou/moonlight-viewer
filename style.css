@@ -326,3 +326,5 @@ tr.employee-detail-area:active td{background:rgba(212,175,103,.055)}
   .overview-today-total strong{font-size:22px}
   .compact-bonus-card .money{font-size:18px}
 }
+
+.detail-sales-scroll{max-height:55vh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.history-employee-detail{padding:12px 0;border-bottom:1px solid var(--line)}.history-employee-detail>summary{display:flex;justify-content:space-between;gap:12px;cursor:pointer}.history-employee-detail .detail-sale-row{display:block}.detail-sale-row>summary{cursor:pointer;font-size:13px;line-height:1.6}.overview-person-hero strong{color:var(--accent);font-size:22px!important}.overview-person-hero small{display:block;opacity:.7;margin-top:8px}

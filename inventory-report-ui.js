@@ -118,16 +118,16 @@
 
   function movementHtml(row, index, editable = false, all = false) {
     const a = row.assessment, saved = row.end.movementReview;
-    if (!row.boundaryEvents?.length && !saved) return "";
     const note = saved?.note ? `<p class="ir-note">保存メモ：${esc(saved.note)}</p>` : "";
     const legacy = saved?.version === 1 ? `<p class="ir-note">旧方式の確認記録は保持しています。現在の計算は登録コイン・実在庫・請求書から行います。</p><dl class="ir-grid">${pair("以前のコイン入庫・出庫", `${coin(saved.coinIn)} / ${coin(saved.coinOut)}`)}${engine.STOCK_KEYS.map(cat => pair(engine.LABELS[cat] || engine.MATERIALS[cat], `交換 ${num(saved.exchangeSets?.[cat])}回 / 補充 ${qty(saved.stockIn?.[cat])} / 使用・移動 ${qty(saved.stockOut?.[cat])}`)).join("")}</dl>` : "";
-    const description = '<p class="ir-note">在庫チェックと同じ分の記録は、開始と同じ分なら対象外、終了と同じ分なら対象です。実際の順序が違う場合は元記録の日時を修正してください。</p>';
-    if (!editable || all) return detail(`interval-${index}-movements`, "日時の確認・保存メモ", badge(a.boundaryUnconfirmed ? "前後関係を確認" : a.confirmed ? "確認済み" : "保存記録あり"), description + legacy + note, all);
+    const description = `<p class="ir-note">コイン報告：${a.coinReportsComplete ? "確認済み" : "未確認"}。未報告分を自動推定して従業員へ加算することはありません。追加登録は実際の収集日時で行ってください。</p>` + '<p class="ir-note">在庫チェックと同じ分の記録は、開始と同じ分なら対象外、終了と同じ分なら対象です。実際の順序が違う場合は元記録の日時を修正してください。</p>';
+    if (!editable || all) return detail(`interval-${index}-movements`, "コイン報告・日時の確認", badge(!a.coinReportsComplete ? "報告未確認" : a.boundaryUnconfirmed ? "前後関係を確認" : "確認済み"), description + legacy + note, all);
     const form = `<form class="ir-movement-form" data-ir-movement="${index}">${description}${legacy}
+      <label class="ir-check-label"><input name="coinReportsComplete" type="checkbox"${a.coinReportsComplete ? " checked" : ""}><span>この区間のコイン報告を全員分確認し、報告漏れがない</span></label>
       ${row.boundaryEvents?.length ? `<label class="ir-check-label"><input name="boundaryOrderConfirmed" type="checkbox"${a.review?.boundaryOrderConfirmed ? " checked" : ""}><span>同じ分の記録の前後関係を確認した（開始分は開始在庫に含まれ、終了分は終了在庫の前に完了）</span></label>` : ""}
       <label class="ir-note-editor"><span>メモ</span><textarea name="note" maxlength="1000" rows="2">${esc(saved?.note || "")}</textarea></label>
-      <div class="ir-form-actions"><button type="submit" class="ir-button ir-primary">日時の確認を保存</button>${saved ? `<button type="button" class="ir-button" data-ir-clear-movement="${index}">保存した確認を解除</button>` : ""}</div><p role="status" class="ir-feedback" data-ir-form-feedback></p></form>`;
-    return detail(`interval-${index}-movements`, "日時の確認・保存メモ", badge(a.boundaryUnconfirmed ? "前後関係を確認" : "確認の編集"), form);
+      <div class="ir-form-actions"><button type="submit" class="ir-button ir-primary">報告・日時の確認を保存</button>${saved ? `<button type="button" class="ir-button" data-ir-clear-movement="${index}">保存した確認を解除</button>` : ""}</div><p role="status" class="ir-feedback" data-ir-form-feedback></p></form>`;
+    return detail(`interval-${index}-movements`, "コイン報告・日時の確認", badge(a.boundaryUnconfirmed ? "前後関係を確認" : "確認の編集"), form);
   }
 
   function intervalBody(row, index, all = false, editable = false) {
@@ -248,13 +248,14 @@
         if (!clear) {
           saved = engine.createTimingReview(current, {
             note: form.querySelector('[name="note"]')?.value || "",
-            boundaryOrderConfirmed: form.querySelector('[name="boundaryOrderConfirmed"]')?.checked === true
+            boundaryOrderConfirmed: form.querySelector('[name="boundaryOrderConfirmed"]')?.checked === true,
+            coinReportsComplete: form.querySelector('[name="coinReportsComplete"]')?.checked === true
           });
         }
         form.dataset.irSaving = "true";
         await options.saveMovementReview(current.end.id, saved);
         refresh();
-        container.querySelector("[data-ir-feedback]").textContent = clear ? "保存した確認を解除して再計算しました。" : "日時の確認を保存して再計算しました。";
+        container.querySelector("[data-ir-feedback]").textContent = clear ? "保存した確認を解除して再計算しました。" : "報告・日時の確認を保存して再計算しました。";
       } catch (error) {
         feedback.textContent = error.message || "保存できませんでした。";
       } finally { delete form.dataset.irSaving; }

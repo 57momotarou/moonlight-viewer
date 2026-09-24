@@ -271,7 +271,15 @@
   }
 
   function bonusCoins(e) {
-    return Math.max(0, num(e?.bonusCoins ?? e?.coins ?? 0));
+    const override = state.bonusComponentOverrides?.[e?.id];
+    if (override && Object.prototype.hasOwnProperty.call(override, "coins")) return Math.max(0, Math.round(num(override.coins)));
+    let paid = 0;
+    for (const payout of state.payoutHistory || []) for (const item of payout.entries || payout.payouts || []) {
+      if (item.managerRemainder) continue;
+      const match = item.employeeId && e?.id ? String(item.employeeId) === String(e.id) : String(item.employeeName || item.name) === String(e?.name);
+      if (match) paid += Math.max(0, Math.round(num(item.calculationCoins ?? item.coins ?? item.bonusCoins)));
+    }
+    return Math.max(0, Math.round(num(e?.coins)) - paid);
   }
 
   function employeeForRecord(r) {
@@ -452,7 +460,7 @@
     const { employee, records, totals, current, payouts } = detail;
     els.employeeDetailTitle.textContent = employee.name || "従業員詳細";
     const aliases = Array.isArray(employee.aliases) && employee.aliases.length ? employee.aliases.join(" / ") : "なし";
-    const recent = records.slice(0, 8).map((r) => {
+    const recent = records.map((r) => {
       const a = recordAmounts(r);
       const detailParts = [
         recordCategoryQty(r, "food") > 0 ? `食べ物 ${qty(recordCategoryQty(r, "food"))} = ${money(a.food)}` : "",
@@ -465,23 +473,17 @@
     const payoutRows = payouts.slice(0, 5).map((p) => `<article class="detail-sale-row"><div><strong>${dateOnly(p.date)}</strong><span>${dateOnly(p.start)}〜${dateOnly(p.end)}</span></div><div class="money sm">${money(p.amount)}</div></article>`).join("") || `<div class="empty-state">支給履歴はありません</div>`;
 
     els.employeeDetailContent.innerHTML = `
-      <div class="detail-profile-grid">
-        <div><span>役職</span><strong>${esc(employee.role || "-")}</strong></div>
-        <div><span>状態</span><strong>${esc(statusLabel(employee))}</strong></div>
-        <div><span>コイン累計</span><strong>${Math.round(num(employee.coins)).toLocaleString("ja-JP")}枚</strong></div>
-        <div><span>今回のボーナス対象</span><strong>${Math.round(bonusCoins(employee)).toLocaleString("ja-JP")}枚</strong></div>
-        <div><span>販売記録</span><strong>${records.length.toLocaleString("ja-JP")}件</strong></div>
+      <div class="detail-alias"><span>${esc(employee.role || "-")} ／ ${esc(statusLabel(employee))}</span><strong>${esc(aliases)}</strong></div>
+      <div class="detail-profile-grid overview-person-hero">
+        <div><span>累計売上</span><strong>${money(totals.total)}</strong><small>${records.length}件</small></div>
+        <div><span>累計コイン</span><strong>${Math.round(num(employee.coins))}枚</strong><small>今回算定 ${employee.role === "店長" ? "対象外" : `${Math.round(bonusCoins(employee))}枚`}</small></div>
+        <div><span>今回の支給予定</span><strong>${current ? money(current.amount) : "対象外"}</strong></div>
       </div>
-      <div class="detail-alias"><span>請求名 / 別名</span><strong>${esc(aliases)}</strong></div>
-      <div class="breakdown-grid detail-money-grid">
-        ${amountCell("食べ物売上", money(totals.food))}
-        ${amountCell("飲み物売上", money(totals.drink))}
-        ${amountCell("ジョイント売上", money(totals.joint))}
-        ${amountCell("その他売上", money(totals.other))}
-        ${amountCell("売上合計", money(totals.total), "累計")}
-        ${amountCell("今回の支給額", current ? money(current.amount) : "-", "ボーナス")}
-      </div>
-      <div class="detail-section"><h3>最近の販売実績</h3><div class="detail-list">${recent}</div></div>
+      <details class="detail-section"><summary>カテゴリ別の累計売上</summary><div class="breakdown-grid detail-money-grid">
+        ${amountCell("食べ物売上", money(totals.food))}${amountCell("飲み物売上", money(totals.drink))}
+        ${amountCell("ジョイント売上", money(totals.joint))}${amountCell("その他売上", money(totals.other))}
+      </div></details>
+      <div class="detail-section"><h3>販売実績（${records.length}件）</h3><div class="detail-list detail-sales-scroll">${recent}</div></div>
       <div class="detail-section"><h3>支給履歴</h3><div class="detail-list">${payoutRows}</div></div>
     `;
     els.employeeDetailModal.classList.remove("hidden");
@@ -1013,9 +1015,29 @@
     }
     return `
       ${amountCell("役職固定給", money(entry.roleBonus), entry.e.role || "-")}
-      ${amountCell("売上加算", money(entry.salesBonus), `${money(entry.sales)} × ${entry.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
+      ${amountCell("売上による支給額", money(entry.salesBonus), `${money(entry.sales)} × ${entry.rate.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}%`)}
       ${amountCell("算定コイン", `${Math.round(entry.coins).toLocaleString("ja-JP")}枚`, `${Math.round(entry.coins).toLocaleString("ja-JP")}枚 × ${money(entry.coinUnitAmount)} = ${money(entry.coinBonus)}`)}
+      ${amountCell("コインによる支給額", money(entry.coinBonus))}
+      ${amountCell("合計支給額", money(entry.amount))}
       ${amountCell("自動支給額", money(entry.auto), `${money(entry.roleBonus)} + ${money(entry.salesBonus)} + ${money(entry.coinBonus)} / 1,000円未満切り上げ`)}`;
+  }
+
+  function periodSalesMarkup(employeeId, start, end) {
+    const records = (state.dailySales || []).filter(r => employeeId && String(employeeForRecord(r)?.id || r.employeeId) === String(employeeId)
+      && periodIncludes(r.invoiceAt || r.saleDate, start, end)).sort((a,b) => String(b.invoiceAt || b.saleDate).localeCompare(String(a.invoiceAt || a.saleDate)));
+    return `<div class="detail-section"><h3>期間中の販売実績（${records.length}件）</h3><p class="muted tiny">修正はWindows版で行えます。</p><div class="detail-list detail-sales-scroll">${records.map(r => `<details class="detail-sale-row"><summary>${invoiceAt(r.invoiceAt || r.saleDate)} ／ ${esc(r.buyerName || "-")} ／ ${money(recordAmounts(r).total)}</summary><div class="detail-sale-breakdown">${["food","drink","joint"].map(cat => `<span>${({food:"食べ物",drink:"飲み物",joint:"ジョイント"})[cat]} ${qty(recordCategoryQty(r,cat))} ／ ${money(recordAmounts(r)[cat])}</span>`).join("")}<span>その他 ${money(recordAmounts(r).other)}</span></div></details>`).join("") || '<div class="empty-state">販売実績はありません</div>'}</div></div>`;
+  }
+
+  function historicalBonusMarkup(payout, entry) {
+    const coins = entry.calculationCoins ?? entry.coins ?? entry.bonusCoins;
+    const stored = value => value == null ? "記録なし" : money(value);
+    return `<details class="history-employee-detail"><summary><strong>${esc(entry.employeeName || entry.name || "-")}</strong><span>${money(entry.amount)}</span></summary><div class="breakdown-grid">
+      ${amountCell("今回算定コイン（支給時）", entry.managerRemainder ? "対象外" : coins == null ? "記録なし" : `${Math.round(num(coins))}枚`)}
+      ${amountCell("コインによる支給額", entry.managerRemainder ? "対象外" : stored(entry.coinBonus))}
+      ${amountCell("売上による支給額", entry.managerRemainder ? "対象外" : stored(entry.salesBonus))}
+      ${amountCell("役職固定給", entry.managerRemainder ? "対象外" : stored(entry.roleBonus))}
+      ${amountCell("合計支給額", money(entry.amount), "支給時の記録")}</div>
+      ${periodSalesMarkup(entry.employeeId, payout.periodStart || payout.bonusStartDate, payout.periodEnd || payout.bonusEndDate)}</details>`;
   }
 
   function openBonusDetail(employeeId) {
@@ -1029,7 +1051,7 @@
         <article><span>対象期間の売上</span><strong>${money(entry.sales)}</strong></article>
         <article><span>今回の支給額</span><strong>${money(entry.amount)}</strong></article>
       </div>
-      <div class="detail-section"><h3>算定内訳</h3><div class="breakdown-grid">${bonusBreakdownMarkup(entry)}</div></div>`);
+      <div class="detail-section"><h3>算定内訳</h3><div class="breakdown-grid">${bonusBreakdownMarkup(entry)}</div></div>${periodSalesMarkup(employeeId, settings.bonusStartDate, settings.bonusEndDate)}`);
   }
 
   function renderBonus() {
@@ -1063,7 +1085,7 @@
         .map(
           (h) => `<details class="item-card payout-history-card">
       <summary><div class="item-top"><div><div class="item-title">${dateOnly(h.payoutDate)}</div><div class="item-meta">${dateOnly(h.periodStart || h.bonusStartDate)}〜${dateOnly(h.periodEnd || h.bonusEndDate)}</div></div><div><div class="money sm">${money(h.totalAmount || h.actualTotal || h.total)}</div><div class="money-note">支給総額</div></div></div><span class="payout-history-hint">タップで内訳を表示</span></summary>
-      <div class="payout-history-details">${(h.entries || h.payouts || []).map((x) => `<div><span>${esc(x.employeeName || x.name || "-")} / ${esc(x.role || "-")}</span><strong>${money(x.amount)}</strong></div>`).join("") || '<div><span>内訳なし</span></div>'}</div>
+      <div class="payout-history-details">${(h.entries || h.payouts || []).map(x => historicalBonusMarkup(h, x)).join("") || '<div><span>内訳なし</span></div>'}</div>
     </details>`
         )
         .join("") || empty("支給履歴がありません");

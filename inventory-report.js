@@ -123,7 +123,7 @@
         counts[cat] = amount(raw[`${cat}Qty`]);
         totalAmount += counts[cat] * amount(raw[`${cat}UnitPrice`] ?? raw[`${cat}_unit_price`] ?? (cat === "joint" ? 50000 : 30000));
       }
-      let unknownItems = 0;
+      let unknownItems = list(raw.unclassifiedItems).length;
       for (const item of list(raw.customItems || raw.custom_items)) {
         const cat = category(item.category), count = quantity(item.count ?? item.qty ?? item.quantity);
         if (!cat) { unknownItems++; continue; }
@@ -281,6 +281,7 @@
     if (!row?.start || !row?.end || row.start.capturedAt >= row.end.capturedAt) throw new Error("比較できる在庫の区間を選んでください。");
     return { version: 2, kind: "timing", startId: row.start.id, basis: movementBasis(row),
       boundaryOrderConfirmed: input.boundaryOrderConfirmed === true,
+      coinReportsComplete: input.coinReportsComplete === true,
       note: text(input.note).slice(0, 1000), checkedAt: new Date().toISOString() };
   }
 
@@ -305,6 +306,10 @@
     const stale = Boolean(saved && !basisMatches);
     const reasons = [...globalUncertainties], uncertainties = [...globalUncertainties];
     const uncertain = reason => { reasons.push(reason); uncertainties.push(reason); };
+    const coinReportsComplete = review?.coinReportsComplete === true;
+    if (!coinReportsComplete) uncertain(stale
+      ? "記録が変わりました。コイン報告の漏れがないか再確認してください。"
+      : "コインの未報告がないか未確認です。収集枚数と交換量は参考値です。報告漏れがあれば実際の収集日時で追加してください。");
     const boundaryUnconfirmed = Boolean(row.boundaryEvents?.length && !review?.boundaryOrderConfirmed);
     if (boundaryUnconfirmed) uncertain(stale
       ? "元記録が変わりました。在庫チェックと同じ分の記録の前後関係を確認し直してください。"
@@ -362,7 +367,7 @@
       coinDifference: row.coins.after - row.coins.before - row.coins.registered + exchangedCoins,
       coinLoss: 0, checkedCoinLoss: 0, pendingCoinLoss: 0, coinIncrease: Math.max(0, -coinUsed),
       stockIn: 0, stockOut: 0, potentialLoss: 0, unconfirmedExchangeMaterials: 0, exchangeExtraLoss: 0,
-      confirmed: Boolean(review?.boundaryOrderConfirmed), stale, review, legacyAdjustment,
+      confirmed: coinReportsComplete && !boundaryUnconfirmed, coinReportsComplete, stale, review, legacyAdjustment,
       boundaryUnconfirmed, checkedAt: text(review?.checkedAt) };
   }
 
