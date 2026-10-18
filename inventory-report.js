@@ -7,8 +7,9 @@
   "use strict";
 
   const CATEGORIES = ["food", "drink", "joint"];
-  const LABELS = { food: "食べ物", drink: "飲み物", joint: "ジョイント" };
-  const MATERIALS = { food: "ご飯の素", drink: "飲み物の素", joint: "リラックスの素", sweet: "甘いものの素" };
+  const LABELS = { food: "食べ物", drink: "飲み物", joint: "ジョイント", full: "同時回復" };
+  const STOCK_CATEGORIES = [...CATEGORIES, "full"];
+  const MATERIALS = { food: "食べ物の素", drink: "飲み物の素", joint: "リラックスの素", full: "満腹の素", sweet: "甘いものの素" };
   const COIN_EXCHANGE_CHANGE_AT = "2026-09-03T17:00";
   const list = value => Array.isArray(value) ? value.filter(item => item && typeof item === "object") : [];
   const text = value => String(value ?? "").normalize("NFKC").trim();
@@ -28,6 +29,22 @@
     if (["drink", "飲み物", "drinkrow"].includes(v)) return "drink";
     if (["joint", "ジョイント", "jointrow"].includes(v)) return "joint";
     return "";
+  }
+
+  // Sales still belong to food; manufacturing and stock use exactly one material.
+  function materialCategory(item = {}, cat = category(item.category)) {
+    if (cat !== "food") return cat;
+    const explicit = text(item.materialCategory || item.material_category).toLowerCase();
+    if (["full", "満腹の素"].includes(explicit)) return "full";
+    if (["food", "食べ物の素", "ご飯の素"].includes(explicit)) return "food";
+    if (["同時回復", "同時回復商品"].includes(text(item.category)) ||
+        [item.name, item.recognizedName, item.recognized_name, item.item_name].some(name => /^同時回復/.test(key(name)))) return "full";
+    return "food";
+  }
+
+  function fullMaterialRecorded(raw = {}) {
+    if (typeof raw.fullMaterialRecorded === "boolean") return raw.fullMaterialRecorded;
+    return [raw.materials?.full, raw.fullMaterial, raw.full_material_count].some(value => value !== undefined && value !== null && value !== "");
   }
 
   function deliveryCategory(name, explicit) {
@@ -67,6 +84,7 @@
     const catalog = list(state.productCatalog).filter(p => p.active !== false).map(p => ({
       id: text(p.id), name: text(p.name || p.productName || p.label),
       category: category(p.category) || deliveryCategory(p.stashName || p.name) || "food",
+      materialCategory: materialCategory(p, category(p.category) || deliveryCategory(p.stashName || p.name) || "food"),
       names: [p.name, p.stashName || p.stashDisplayName || p.inventoryName || p.stash_name, ...(Array.isArray(p.aliases) ? p.aliases : [])].map(key).filter(Boolean)
     }));
     return (name, cat, id) => {
@@ -92,6 +110,7 @@
       if (!resolvedCategory) unknownProducts++;
       return {
         name: matched?.name || name, category: resolvedCategory,
+        materialCategory: materialCategory(matched || item, resolvedCategory),
         productCatalogId: matched?.id || id,
         count: quantity(item.count ?? item.qty ?? item.quantity)
       };
@@ -99,20 +118,26 @@
     const materials = {};
     for (const cat of Object.keys(MATERIALS)) materials[cat] = quantity(raw.materials?.[cat] ?? raw[`${cat}Material`] ?? raw[`${cat}_material_count`]);
     const totals = zeroCounts(), productTotals = zeroCounts();
-    for (const cat of CATEGORIES) {
-      productTotals[cat] = sum(products.filter(p => p.category === cat), p => p.count);
+    for (const cat of STOCK_CATEGORIES) {
+      productTotals[cat] = sum(products.filter(p => p.materialCategory === cat), p => p.count);
       totals[cat] = productTotals[cat] + materials[cat];
     }
     return {
       id: text(raw.id) || `report-snapshot-${index}`, capturedAt: dateTime(raw.capturedAt || raw.recordedAt),
       isBaseline: raw.isBaseline === true, createdAt: text(raw.updatedAt || raw.createdAt),
-      products, materials, productTotals, totals, unknownProducts,
+      products, materials, productTotals, totals, unknownProducts, fullMaterialRecorded: fullMaterialRecorded(raw),
       spCoins: quantity(raw.spCoins ?? raw.sp_coin_count ?? raw.spCoinCount), note: text(raw.note),
       movementReview: raw.movementReview || null
     };
   }
 
   function eventsFromState(state) {
+    const resolve = catalogResolver(state);
+    const resolveMaterial = (item, cat) => {
+      const id = text(item.productCatalogId || item.product_catalog_id);
+      if (!id && item.source === "custom-invoice-category" && item.materialCategory) return materialCategory(item, cat);
+      return materialCategory(resolve(item.name || item.item_name || item.product_name, cat, id) || resolve(item.recognizedName || item.recognized_name, "", "") || item, cat);
+    };
     const employees = new Map(list(state.employees).map(e => [text(e.id), text(e.name)]));
     const employeeName = raw => employees.get(text(raw.employeeId || raw.employee_id)) || text(raw.employeeName || raw.employee_name) || "従業員未設定";
     const events = list(state.dailySales).map((raw, i) => {
@@ -123,20 +148,23 @@
         counts[cat] = amount(raw[`${cat}Qty`]);
         totalAmount += counts[cat] * amount(raw[`${cat}UnitPrice`] ?? raw[`${cat}_unit_price`] ?? (cat === "joint" ? 50000 : 30000));
       }
+      const stockCounts = { ...counts, full: 0 };
       let unknownItems = list(raw.unclassifiedItems).length;
       for (const item of list(raw.customItems || raw.custom_items)) {
         const cat = category(item.category), count = quantity(item.count ?? item.qty ?? item.quantity);
         if (!cat) { unknownItems++; continue; }
         if (count === 0) continue;
         counts[cat] += count;
+        stockCounts[resolveMaterial(item, cat)] += count;
         const price = amount(item.unitPrice ?? item.unit_price ?? item.salePrice);
         totalAmount += amount(item.totalAmount ?? item.total_amount ?? item.amount) || count * price;
       }
       for (const cat of CATEGORIES) counts[cat] = Math.round(counts[cat]);
+      for (const cat of STOCK_CATEGORIES) stockCounts[cat] = Math.round(stockCounts[cat]);
       const hasCategoryFields = ["foodQty", "drinkQty", "jointQty", "otherAmount"].some(k => Object.prototype.hasOwnProperty.call(raw, k));
       return {
         kind: "sale", id: text(raw.id) || `sale-${i}`, at: dateTime(rawAt), dateOnly: !/[ T]\d{1,2}:\d{2}/.test(text(rawAt)),
-        label: employeeName(raw), buyer: text(raw.buyerName || raw.purchaserName || raw.customerName), counts,
+        label: employeeName(raw), buyer: text(raw.buyerName || raw.purchaserName || raw.customerName), counts, stockCounts,
         otherAmount: amount(raw.otherAmount), totalAmount,
         invoiceAmount: amount(raw.transactionTotal ?? raw.transaction_total),
         unclassified: unknownItems > 0 || amount(hasCategoryFields ? raw.legacySales : (raw.sales || raw.legacySales)) > 0,
@@ -146,17 +174,26 @@
     list(state.deliveryOrders).forEach((raw, i) => {
       const rawAt = raw.recordedAt || raw.orderAt || raw.order_at;
       const counts = zeroCounts();
+      const stockCounts = { ...counts, full: 0 };
       let unknownItems = 0;
       for (const item of list(raw.items)) {
-        const cat = deliveryCategory(item.name || item.product_name || item.recognizedName, item.category);
+        const name = item.name || item.product_name || item.recognizedName;
+        const matched = resolve(name, item.category, text(item.productCatalogId || item.product_catalog_id));
+        const cat = matched?.category || deliveryCategory(name, item.category);
         const count = quantity(item.count ?? item.qty ?? item.quantity);
-        if (cat) counts[cat] += count;
+        if (cat) { counts[cat] += count; stockCounts[resolveMaterial(item, cat)] += count; }
         else unknownItems += count;
       }
+      const itemFoodCount = counts.food, fullItemCount = stockCounts.full;
       for (const cat of CATEGORIES) counts[cat] = quantity(raw[`${cat}Qty`] ?? raw[`${cat}_count`] ?? counts[cat]);
+      // An edited aggregate cannot tell us which recipe a mixed order changed.
+      const materialAllocationUnknown = fullItemCount > 0 && counts.food !== itemFoodCount;
+      stockCounts.full = Math.min(counts.food, fullItemCount);
+      stockCounts.food = counts.food - stockCounts.full;
+      stockCounts.drink = counts.drink; stockCounts.joint = counts.joint;
       events.push({ kind: "delivery", id: text(raw.id) || `delivery-${i}`, at: dateTime(rawAt),
         dateOnly: !/[ T]\d{1,2}:\d{2}/.test(text(rawAt)), label: text(raw.orderNo || raw.order_no) || "デリバリー",
-        buyer: text(raw.buyerName || raw.buyer_name || raw.customerName), counts, unknownItems, note: text(raw.note) });
+        buyer: text(raw.buyerName || raw.buyer_name || raw.customerName), counts, stockCounts, materialAllocationUnknown, unknownItems, note: text(raw.note) });
     });
     list(state.coinHistory || state.coinTransactions || state.coinLogs).forEach((raw, i) => {
       const rawAt = Object.prototype.hasOwnProperty.call(raw, "recordedAt") ? raw.recordedAt : (raw.registeredAt || raw.createdAt);
@@ -173,7 +210,7 @@
     function append(s, side) {
       for (const product of s.products) {
         const id = `product:${product.category}:${product.productCatalogId || key(product.name)}`;
-        if (!entries.has(id)) entries.set(id, { id, name: product.name, category: product.category, kind: "product", unit: "個", before: 0, after: 0 });
+        if (!entries.has(id)) entries.set(id, { id, name: product.name, category: product.materialCategory, kind: "product", unit: "個", before: 0, after: 0 });
         entries.get(id)[side] += product.count;
         if (side === "after") entries.get(id).name = product.name;
       }
@@ -193,8 +230,8 @@
   function reconcile(start, end, events) {
     const sales = events.filter(e => e.kind === "sale"), deliveries = events.filter(e => e.kind === "delivery");
     const coins = events.filter(e => e.kind === "coin");
-    const categories = CATEGORIES.map(cat => {
-      const saleQty = sum(sales, e => e.counts[cat]), deliveryQty = sum(deliveries, e => e.counts[cat]);
+    const categories = STOCK_CATEGORIES.map(cat => {
+      const saleQty = sum(sales, e => e.stockCounts[cat]), deliveryQty = sum(deliveries, e => e.stockCounts[cat]);
       const before = start.totals[cat], after = end.totals[cat], expected = before - saleQty - deliveryQty;
       const difference = after - expected;
       return { category: cat, label: LABELS[cat], before, after, expected, difference,
@@ -223,7 +260,7 @@
     };
   }
 
-  const STOCK_KEYS = [...CATEGORIES, "sweet"];
+  const STOCK_KEYS = [...STOCK_CATEGORIES, "sweet"];
   const ASSESSMENT_LABELS = { ok: "記録上は問題なし", shortage: "説明できない減少あり", review: "確認が必要", empty: "比較データ不足" };
 
   function describeAssessment(a) {
@@ -240,10 +277,10 @@
   // Exact, deterministic basis: a later receipt, quantity edit or changed interval
   // must invalidate a previous confirmation, on both desktop and the read-only viewer.
   function movementBasis(row) {
-    const stock = s => [s.id, s.capturedAt, s.materials, s.spCoins,
-      s.products.map(p => [p.category, p.productCatalogId || key(p.name), p.count]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))];
+    const stock = s => [s.id, s.capturedAt, s.materials, s.fullMaterialRecorded, s.spCoins,
+      s.products.map(p => [p.category, p.materialCategory, p.productCatalogId || key(p.name), p.count]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))];
     const relevantEvents = [...row.events, ...(row.dateOnlyEvents || []).filter(e => !row.events.includes(e))];
-    const events = relevantEvents.map(e => [e.kind, e.id, e.at, e.dateOnly, e.counts || null,
+    const events = relevantEvents.map(e => [e.kind, e.id, e.at, e.dateOnly, e.counts || null, e.stockCounts || null, Boolean(e.materialAllocationUnknown),
       e.otherAmount || 0, e.totalAmount || 0, e.invoiceAmount || 0, Boolean(e.unclassified),
       e.unknownItems || 0, e.source || "", e.amount || 0]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const boundaries = (row.boundaryEvents || []).map(e => [e.kind, e.id, e.at, e.counts || null, e.amount || 0]);
@@ -316,6 +353,9 @@
       : "在庫チェックと同じ分の記録があります。開始と同じ分は対象外、終了と同じ分は対象です。前後関係を確認してください。");
     if (row.dateOnlyEvents?.length) uncertain("同じ日付に時刻不明の記録があります。実際の時刻が分かるまで、区間の判定は未確定です。");
     if (row.unknownDeliveryCount || row.start.unknownProducts || row.end.unknownProducts) uncertain("在庫またはデリバリーに、分類を確認する商品があります。");
+    const hasFullStock = row.start.totals.full > 0 || row.end.totals.full > 0 || row.events.some(e => e.stockCounts?.full > 0);
+    if (hasFullStock && (!row.start.fullMaterialRecorded || !row.end.fullMaterialRecorded)) uncertain("満腹の素が未記録の在庫があります。在庫履歴で実際の個数（無ければ0）を入力してください。");
+    if (row.events.some(e => e.materialAllocationUnknown)) uncertain("デリバリーの食べ物合計と商品明細が異なり、通常商品・同時回復への割り振りを確定できません。商品別の個数を確認してください。");
     if (row.amountMismatchCount) uncertain("請求金額と売上内訳が一致しない記録があります。保存された個数だけで仮計算しています。");
     const legacyAdjustment = Boolean(saved && saved.version === 1 &&
       (number(saved.coinOut) || number(saved.coinIn) !== row.coins.registered || STOCK_KEYS.some(c => number(saved.stockIn?.[c]) || number(saved.stockOut?.[c]))));
@@ -532,5 +572,5 @@
   }
 
   return { build, normalizeCategory: category, catalogResolver, dateTime, coinExchangeForInterval, createMovementReview, createTimingReview, movementBasis, assessPair, describeAssessment,
-    COIN_EXCHANGE_CHANGE_AT, CATEGORIES, LABELS, MATERIALS, STOCK_KEYS, ASSESSMENT_LABELS };
+    materialCategory, fullMaterialRecorded, eventsFromState, COIN_EXCHANGE_CHANGE_AT, CATEGORIES, STOCK_CATEGORIES, LABELS, MATERIALS, STOCK_KEYS, ASSESSMENT_LABELS };
 });

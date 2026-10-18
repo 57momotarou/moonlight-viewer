@@ -858,7 +858,7 @@
         .map(
           (p) => `<article class="product-card">
       <div class="product-image">${p.imageDataUrl ? `<img src="${esc(p.imageDataUrl)}" alt="${esc(p.name || "商品")}">` : `<span class="empty">画像なし</span>`}</div>
-      <div class="product-body"><div class="product-name">${esc(p.name || "-")}</div><div class="product-stash">${esc(p.stashName || "-")}</div><div class="pills"><span class="pill">${esc(categoryLabel(p.category))}</span></div><div class="product-price">${money(p.salePrice)}</div></div>
+      <div class="product-body"><div class="product-name">${esc(p.name || "-")}</div><div class="product-stash">${esc(p.stashName || "-")}</div><div class="pills"><span class="pill">${esc(categoryLabel(p.category))}</span><span class="pill">${esc(window.MoonlightInventoryReport.MATERIALS[window.MoonlightInventoryReport.materialCategory(p, categoryKey(p.category))])}</span></div><div class="product-price">${money(p.salePrice)}</div></div>
     </article>`
         )
         .join("") || empty("商品が登録されていません");
@@ -880,7 +880,7 @@
       products: (Array.isArray(s.products) ? s.products : []).map(product => {
         const matched = resolve(product.name, product.category, product.productCatalogId || product.product_catalog_id)
           || resolve(product.recognizedName, "", "");
-        return { ...product, name: matched?.name || product.name, category: matched?.category || categoryKey(product.category) };
+        return { ...product, name: matched?.name || product.name, category: matched?.category || categoryKey(product.category), materialCategory: window.MoonlightInventoryReport.materialCategory(matched || product, matched?.category || categoryKey(product.category)) };
       }),
       materials: s.materials || {},
       spCoins: num(s.spCoins)
@@ -899,7 +899,7 @@
   function renderSnapshot(s, latest = false) {
     const snapshotKey = inventorySnapshotKey(s);
     s = normalizeSnapshot(s);
-    const materialTotal = ["food", "drink", "joint", "sweet"].reduce((sum, name) => sum + num(s.materials[name]), 0);
+    const materialTotal = ["food", "drink", "joint", "full", "sweet"].reduce((sum, name) => sum + num(s.materials[name]), 0);
     const productQty = s.products.reduce((sum, product) => sum + num(product.count), 0);
     return `<article class="inventory-block tap-detail-card compact-inventory-card" data-inventory-area="${esc(snapshotKey)}">
       <div class="item-top"><div><div class="item-title">${latest ? "最新在庫" : "在庫チェック"}${s.isBaseline ? ' <span class="pill role">比較基準</span>' : ""}</div><div class="item-meta">画像送信日時 ${invoiceAt(s.capturedAt)}</div></div><strong>SP ${Math.round(s.spCoins).toLocaleString("ja-JP")}枚</strong></div>
@@ -912,7 +912,7 @@
     if (!raw) return;
     const snapshot = normalizeSnapshot(raw);
     const products = snapshot.products
-      .map((product) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(product.name || "-", product.category))}</strong><br><span class="muted">${esc(categoryLabel(product.category))}</span> ${qty(product.count)}</div>`)
+      .map((product) => `<div class="inventory-product"><strong>${esc(canonicalInventoryName(product.name || "-", product.category))}</strong><br><span class="muted">${esc(categoryLabel(product.category))} / ${esc(window.MoonlightInventoryReport.MATERIALS[product.materialCategory] || "素未設定")}</span> ${qty(product.count)}</div>`)
       .join("") || '<div class="empty-state">登録商品の在庫はありません</div>';
     openSharedDetail("INVENTORY DETAIL", "在庫チェック詳細", `
       <div class="detail-profile-grid">
@@ -922,7 +922,8 @@
         <article><span>登録商品</span><strong>${snapshot.products.length.toLocaleString("ja-JP")}種類</strong></article>
       </div>
       <div class="detail-section"><h3>素材</h3><div class="breakdown-grid">
-        ${amountCell("ご飯の素", qty(snapshot.materials.food))}
+        ${amountCell("食べ物の素", qty(snapshot.materials.food))}
+        ${amountCell("満腹の素", window.MoonlightInventoryReport.fullMaterialRecorded(snapshot) ? qty(snapshot.materials.full) : "未記録")}
         ${amountCell("飲み物の素", qty(snapshot.materials.drink))}
         ${amountCell("リラックスの素", qty(snapshot.materials.joint))}
         ${amountCell("甘いものの素", qty(snapshot.materials.sweet))}
