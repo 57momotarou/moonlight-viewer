@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex,nofollow">
 <title>ケーキ受付 | Moonlight</title>
 <link rel="icon" href="../icons/icon-192.png">
-<link rel="stylesheet" href="album.css?v=1">
+<link rel="stylesheet" href="album.css?v=2">
 </head>
 <body class="staff">
 <main class="wrap">
@@ -46,7 +46,12 @@
     <section class="card">
       <h2>ケーキセットを渡したら記録</h2>
       <div class="field">
-        <label for="nameInput">お客さんの名前（2〜3文字でOK・ひらがなでも探せます）</label>
+        <label for="nightSelect">どの夜の分？（記録し忘れた夜も選べます）</label>
+        <select id="nightSelect" class="night-select"></select>
+        <div class="late-note hidden" id="lateNote"></div>
+      </div>
+      <div class="field">
+        <label for="nameInput">お客さんの名前（2〜3文字でOK・ひらがなでも探せます。従業員管理の購入者からも出ます）</label>
         <input type="text" id="nameInput" maxlength="40" autocomplete="off" enterkeyhint="done">
         <div class="suggest" id="suggest"></div>
       </div>
@@ -63,10 +68,10 @@
 
     <section class="card">
       <div class="topline" style="margin-bottom:6px">
-        <h2 style="margin:0">今夜の記録</h2>
+        <h2 style="margin:0" id="listTitle">今夜の記録</h2>
         <span class="small muted" id="tonightCount"></span>
       </div>
-      <p class="small muted" style="margin:0 0 8px">押し間違えたときは「取消」。取り消せるのは今夜の分だけです。</p>
+      <p class="small muted" style="margin:0 0 8px">押し間違えたときは「取消」。上で選んだ夜の記録が出ます。</p>
       <div class="list" id="tonightList"></div>
     </section>
   </section>
@@ -76,6 +81,6 @@
 <script src="../config.js"></script>
 <script src="album-config.js"></script>
 <script src="cake-api.js?v=1"></script>
-<script src="staff.js?v=1"></script>
+<script src="staff.js?v=2"></script>
 </body>
 </html>
