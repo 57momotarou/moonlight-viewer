@@ -210,9 +210,8 @@ button.pair-card{width:100%;color:inherit;font:inherit;cursor:pointer;text-align
 .frame-chip:disabled{opacity:.45;cursor:default}
 .save-panel .frames{margin:0 0 10px}
 .tile.streak::before{content:"✦";position:absolute;top:4px;right:8px;color:#fff3c4;font-size:14px;text-shadow:0 0 8px #ffe9a8;animation:twinkle 2.2s ease-in-out infinite;z-index:1}
-.tile.got.streak::after{content:"";position:absolute;top:10px;left:-30%;width:40%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,rgba(255,245,210,.95));transform:rotate(-24deg);animation:shoot 3.6s ease-in infinite;pointer-events:none}
-.tile.got.pair.streak::before{right:26px}
-@keyframes shoot{0%{left:-40%;top:6%;opacity:0}8%{opacity:1}30%{left:110%;top:42%;opacity:0}100%{left:110%;top:42%;opacity:0}}
+.tile.got.streak::after{content:"";position:absolute;top:14%;right:-10%;width:46%;height:2px;border-radius:2px;background:linear-gradient(90deg,#fffbe8 0%,rgba(255,245,210,.6) 30%,rgba(255,245,210,0) 100%);box-shadow:-2px 0 6px rgba(255,240,190,.9);transform-origin:left center;transform:rotate(-26deg) translateX(40px);opacity:0;animation:shoot 4.2s ease-out infinite;pointer-events:none}
+@keyframes shoot{0%{transform:rotate(-26deg) translateX(40px);opacity:0}6%{opacity:1}26%{transform:rotate(-26deg) translateX(-150px);opacity:0}100%{transform:rotate(-26deg) translateX(-150px);opacity:0}}
 .streak-badge{display:inline-block;margin:0 0 10px;padding:5px 12px;border-radius:999px;background:rgba(255,243,196,.12);color:#fff3c4;font-size:13px}
 .cert-lock{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:14px}
 .cert-lock b{font-size:30px}

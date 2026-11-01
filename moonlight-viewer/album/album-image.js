@@ -105,9 +105,9 @@ async function imgFooter(ctx, w, h) {
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(214,179,101,.85)";
   ctx.font = `500 26px ${IMG_SANS}`;
-  if (logo) ctx.drawImage(logo, w / 2 - 150, h - 78, 44, 44);
+  if (logo) ctx.drawImage(logo, w / 2 - 150, h - 108, 44, 44);
   ctx.textAlign = "left";
-  ctx.fillText("cafe＆bar Moonlight", w / 2 - 96, h - 47);
+  ctx.fillText("cafe＆bar Moonlight", w / 2 - 96, h - 77);
   ctx.textAlign = "center";
 }
 
@@ -170,98 +170,150 @@ function imgGold(ctx, x0, y0, x1, y1) {
   return g;
 }
 
+// 四隅の小さな飾り（4方向の光）
+function imgSparkle(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y);
+  ctx.quadraticCurveTo(x, y, x, y - r);
+  ctx.fill();
+}
+
+function imgRoundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+}
+
+// フレーム。すべて画像の内側（外枠 m=28〜）に収める。
 function imgFrame(ctx, W, H, id) {
-  const m = 36;
+  const m = 28;
+  const gold = imgGold(ctx, 0, 0, W, H);
+  const corners = (inset) => [[inset, inset], [W - inset, inset], [W - inset, H - inset], [inset, H - inset]];
   ctx.save();
+  ctx.lineJoin = "round";
   if (id === "moon") {
-    ctx.strokeStyle = "rgba(214,179,101,.55)";
+    ctx.strokeStyle = "rgba(214,179,101,.75)";
     ctx.lineWidth = 3;
-    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
+    imgRoundRectPath(ctx, m, m, W - m * 2, H - m * 2, 18); ctx.stroke();
+    ctx.strokeStyle = "rgba(214,179,101,.35)";
+    ctx.lineWidth = 1.5;
+    imgRoundRectPath(ctx, m + 12, m + 12, W - (m + 12) * 2, H - (m + 12) * 2, 12); ctx.stroke();
+    ctx.fillStyle = "#f3dfa8";
+    corners(m + 6).forEach(([x, y]) => imgSparkle(ctx, x, y, 12));
   } else if (id === "stardust") {
-    ctx.strokeStyle = "rgba(214,179,101,.5)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
-    ctx.fillStyle = "#f3dfa8";
-    const per = (W + H) / 46;
-    for (let i = 0; i < 46; i++) {
-      const t = i * per;
-      let x, y;
-      if (t < W) { x = t; y = i % 2 ? m : H - m; } else { x = i % 2 ? m : W - m; y = t - W; }
-      ctx.globalAlpha = 0.5 + imgRand(i + 3) * 0.5;
-      imgStar(ctx, x, Math.min(H - m, Math.max(m, y)), 5 + imgRand(i) * 7);
-    }
+    ctx.strokeStyle = "rgba(214,179,101,.7)";
+    ctx.lineWidth = 2.5;
+    imgRoundRectPath(ctx, m, m, W - m * 2, H - m * 2, 18); ctx.stroke();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "rgba(214,179,101,.35)";
+    imgRoundRectPath(ctx, m + 12, m + 12, W - (m + 12) * 2, H - (m + 12) * 2, 12); ctx.stroke();
+    // 4辺に沿って星くず
+    ctx.fillStyle = "#f8e7b0";
+    const side = (x0, y0, x1, y1, count, seed) => {
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count + (imgRand(seed + i) - 0.5) * 0.03;
+        const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+        ctx.globalAlpha = 0.45 + imgRand(seed + i + 50) * 0.55;
+        if (i % 3 === 1) imgStar(ctx, x, y, 7 + imgRand(seed + i + 9) * 4);
+        else { ctx.beginPath(); ctx.arc(x, y, 2 + imgRand(seed + i + 9) * 2, 0, Math.PI * 2); ctx.fill(); }
+      }
+    };
+    side(m + 40, m, W - m - 40, m, 15, 1);
+    side(m + 40, H - m, W - m - 40, H - m, 15, 40);
+    side(m, m + 40, m, H - m - 40, Math.round(15 * H / W), 80);
+    side(W - m, m + 40, W - m, H - m - 40, Math.round(15 * H / W), 120);
+    ctx.globalAlpha = 1;
+    corners(m + 4).forEach(([x, y]) => imgSparkle(ctx, x, y, 16));
   } else if (id === "crescent") {
-    ctx.strokeStyle = "rgba(214,179,101,.65)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
-    ctx.strokeRect(m + 12, m + 12, W - (m + 12) * 2, H - (m + 12) * 2);
-    ctx.fillStyle = "#f3dfa8";
-    imgCrescent(ctx, m + 6, m + 6, 30, Math.PI * 0.25);
-    imgCrescent(ctx, W - m - 6, m + 6, 30, Math.PI * 0.75);
-    imgCrescent(ctx, W - m - 6, H - m - 6, 30, Math.PI * 1.25);
-    imgCrescent(ctx, m + 6, H - m - 6, 30, Math.PI * 1.75);
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = 3;
+    imgRoundRectPath(ctx, m, m, W - m * 2, H - m * 2, 22); ctx.stroke();
+    ctx.lineWidth = 1.5;
+    imgRoundRectPath(ctx, m + 14, m + 14, W - (m + 14) * 2, H - (m + 14) * 2, 14); ctx.stroke();
+    ctx.fillStyle = gold;
+    const cs = corners(m + 34);
+    const rots = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+    cs.forEach(([x, y], i) => imgCrescent(ctx, x, y, 22, rots[i]));
+    ctx.fillStyle = "#f8e7b0";
+    [[W / 2, m], [W / 2, H - m]].forEach(([x, y]) => { imgCrescent(ctx, x, y, 14, -Math.PI / 2); });
   } else if (id === "thirteen") {
-    ctx.strokeStyle = imgGold(ctx, 0, 0, W, H);
+    ctx.strokeStyle = gold;
     ctx.lineWidth = 6;
-    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
-    ctx.lineWidth = 2;
-    ctx.strokeRect(m + 16, m + 16, W - (m + 16) * 2, H - (m + 16) * 2);
-    ctx.fillStyle = imgGold(ctx, 0, 0, W, H);
-    for (const [x, y] of [[m, m], [W - m, m], [W - m, H - m], [m, H - m]]) {
+    imgRoundRectPath(ctx, m, m, W - m * 2, H - m * 2, 16); ctx.stroke();
+    ctx.lineWidth = 1.5;
+    imgRoundRectPath(ctx, m + 16, m + 16, W - (m + 16) * 2, H - (m + 16) * 2, 10); ctx.stroke();
+    ctx.fillStyle = gold;
+    corners(m + 8).forEach(([x, y]) => {
       ctx.beginPath();
-      ctx.moveTo(x, y - 26); ctx.lineTo(x + 26, y); ctx.lineTo(x, y + 26); ctx.lineTo(x - 26, y);
+      ctx.moveTo(x, y - 22); ctx.lineTo(x + 22, y); ctx.lineTo(x, y + 22); ctx.lineTo(x - 22, y);
       ctx.closePath(); ctx.fill();
-    }
+    });
+    ctx.fillStyle = "#fffaf0";
+    corners(m + 8).forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); });
     ctx.fillStyle = "#f8e7b0";
-    for (const x of [W / 2 - 60, W / 2, W / 2 + 60]) imgStar(ctx, x, m, x === W / 2 ? 14 : 8);
-    for (const x of [W / 2 - 60, W / 2, W / 2 + 60]) imgStar(ctx, x, H - m, x === W / 2 ? 14 : 8);
+    for (const y of [m, H - m]) for (const dx of [-54, 0, 54]) imgStar(ctx, W / 2 + dx, y, dx ? 8 : 13);
   } else if (id === "full") {
-    ctx.shadowColor = "rgba(248,231,176,.7)";
-    ctx.shadowBlur = 30;
-    ctx.strokeStyle = imgGold(ctx, 0, 0, W, H);
-    ctx.lineWidth = 12;
-    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
+    ctx.shadowColor = "rgba(248,231,176,.6)";
+    ctx.shadowBlur = 24;
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = 9;
+    imgRoundRectPath(ctx, m + 2, m + 2, W - (m + 2) * 2, H - (m + 2) * 2, 18); ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.lineWidth = 2;
-    ctx.strokeRect(m + 22, m + 22, W - (m + 22) * 2, H - (m + 22) * 2);
-    // 上の満月と光
-    const cx = W / 2, cy = m;
-    ctx.fillStyle = "rgba(248,231,176,.18)";
-    for (let i = 0; i < 16; i++) {
-      const a = Math.PI + (i * Math.PI) / 15;
-      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
-      ctx.fillRect(48, -2, 70, 4);
-      ctx.restore();
+    imgRoundRectPath(ctx, m + 20, m + 20, W - (m + 20) * 2, H - (m + 20) * 2, 12); ctx.stroke();
+    // 上下中央の満月のメダル（枠の上に乗せ、画像の外にはみ出さない）
+    for (const cy of [m + 2, H - m - 2]) {
+      const r = cy < H / 2 ? 24 : 16;
+      ctx.fillStyle = "#0b1226";
+      ctx.beginPath(); ctx.arc(W / 2, cy, r + 8, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = gold; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(W / 2, cy, r + 8, 0, Math.PI * 2); ctx.stroke();
+      const mg = ctx.createRadialGradient(W / 2 - r * 0.25, cy - r * 0.25, 2, W / 2, cy, r);
+      mg.addColorStop(0, "#fffaf0"); mg.addColorStop(1, "#e9d9a8");
+      ctx.shadowColor = "rgba(248,231,176,.9)"; ctx.shadowBlur = 18;
+      ctx.fillStyle = mg;
+      ctx.beginPath(); ctx.arc(W / 2, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
     }
-    const mg = ctx.createRadialGradient(cx - 8, cy - 8, 4, cx, cy, 40);
-    mg.addColorStop(0, "#fffaf0"); mg.addColorStop(1, "#e9d9a8");
-    ctx.shadowColor = "rgba(248,231,176,.9)"; ctx.shadowBlur = 40;
-    ctx.fillStyle = mg;
-    ctx.beginPath(); ctx.arc(cx, cy, 40, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
     ctx.fillStyle = "#f8e7b0";
-    for (const [x, y] of [[m, m], [W - m, m], [W - m, H - m], [m, H - m]]) imgStar(ctx, x, y, 22);
+    corners(m + 10).forEach(([x, y]) => imgSparkle(ctx, x, y, 20));
+    for (const y of [m + 2, H - m - 2]) for (const dx of [-90, 90]) imgStar(ctx, W / 2 + dx, y, 9);
   }
   ctx.restore();
 }
 
+// 流れ星：右上から左下へ流れる（頭が左下、尾が右上へ細くなる）
 function imgShootingStars(ctx, W, H, seed = 1, spots = null) {
   ctx.save();
-  const stars = spots || [[0.18, 0.12, 1], [0.7, 0.07, 0.75], [0.86, 0.3, 0.6]];
+  const stars = spots || [[0.3, 0.16, 1], [0.86, 0.09, 0.7], [0.78, 0.36, 0.55]];
+  const ang = Math.atan2(-0.5, 1); // 尾の向き（右上）
   stars.forEach(([fx, fy, s], i) => {
-    const x = W * (fx + (spots ? 0 : (imgRand(seed + i) - 0.5) * 0.06));
-    const y = H * (fy + (spots ? 0 : (imgRand(seed + i + 9) - 0.5) * 0.04));
-    const len = 220 * s;
-    const g = ctx.createLinearGradient(x, y, x - len, y - len * 0.45);
-    g.addColorStop(0, "rgba(255,245,210,.95)");
-    g.addColorStop(1, "rgba(255,245,210,0)");
-    ctx.strokeStyle = g;
-    ctx.lineWidth = 5 * s;
-    ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - len, y - len * 0.45); ctx.stroke();
-    ctx.shadowColor = "rgba(255,240,190,1)"; ctx.shadowBlur = 24;
+    const x = W * (fx + (spots ? 0 : (imgRand(seed + i) - 0.5) * 0.05));
+    const y = H * (fy + (spots ? 0 : (imgRand(seed + i + 9) - 0.5) * 0.03));
+    const len = 260 * s, w = 7 * s;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    const g = ctx.createLinearGradient(0, 0, len, 0);
+    g.addColorStop(0, "rgba(255,248,220,.95)");
+    g.addColorStop(0.25, "rgba(255,240,200,.5)");
+    g.addColorStop(1, "rgba(255,240,200,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, -w / 2);
+    ctx.lineTo(len, 0);
+    ctx.lineTo(0, w / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.shadowColor = "rgba(255,240,190,1)";
+    ctx.shadowBlur = 22 * s;
     ctx.fillStyle = "#fffbe8";
-    imgStar(ctx, x, y, 14 * s);
+    ctx.beginPath(); ctx.arc(x, y, 5 * s, 0, Math.PI * 2); ctx.fill();
+    imgSparkle(ctx, x, y, 16 * s);
     ctx.shadowBlur = 0;
   });
   ctx.restore();
@@ -287,7 +339,7 @@ async function makeCardImage({ visit, selfName = "", withNames = [], startDate, 
   ctx.fillText("18 NIGHTS OF THE MOON", W / 2, 108);
   ctx.fillStyle = "#f3dfa8";
   ctx.font = `600 44px ${IMG_FONT}`;
-  ctx.fillText(`第${visit.night}夜　${cakeNightDate(startDate, visit.night)}${visit.night === total ? "　満月の夜" : ""}`, W / 2, frame === "full" ? 178 : 168);
+  ctx.fillText(`第${visit.night}夜　${cakeNightDate(startDate, visit.night)}${visit.night === total ? "　満月の夜" : ""}`, W / 2, 168);
 
   const im = await imgLoad(visit.image);
   if (im) {
@@ -346,28 +398,27 @@ async function makeAlbumImage(album, title, { showName = true, showTitle = true,
   await imgFonts();
   const total = album.total_nights;
   const cols = 3, rows = Math.ceil(total / cols);
-  const W = 1080, tileW = 316, tileH = 236, gap = 18, top = 300;
-  const H = top + rows * (tileH + gap) + 120;
+  const W = 1080, tileW = 286, tileH = 228, gap = 16, top = 310;
+  const H = top + rows * (tileH + gap) + 130;
   const cv = document.createElement("canvas");
   cv.width = W; cv.height = H;
   const ctx = cv.getContext("2d");
   imgBackground(ctx, W, H, 7, 140);
   imgFrame(ctx, W, H, frame);
-  if (shooting) imgShootingStars(ctx, W, H, 3, [[0.66, 0.028, 0.7], [0.97, 0.115, 0.55]]);
+  if (shooting) imgShootingStars(ctx, W, H, 3, [[0.6, 0.05, 0.6], [0.7, 0.14, 0.45]]);
 
   const count = album.visits.length;
-  const streaks = new Set(album.visits.filter((v) => v.streak).map((v) => v.night));
   ctx.textAlign = "left";
   ctx.fillStyle = "#d6b365";
   ctx.font = `600 28px ${IMG_SANS}`;
-  ctx.fillText("cafe＆bar Moonlight ・ 18夜の月", 76, 104);
+  ctx.fillText("cafe＆bar Moonlight ・ 18夜の月", 96, 116);
   ctx.fillStyle = "#f3dfa8";
   ctx.font = `600 64px ${IMG_FONT}`;
-  ctx.fillText(showName ? album.name : "わたしの18夜", 76, 182, 720);
+  ctx.fillText(showName ? album.name : "わたしの18夜", 96, 194, 680);
   ctx.fillStyle = "#c9d3e8";
   ctx.font = `500 34px ${IMG_SANS}`;
-  ctx.fillText(`${showTitle && title ? title + "　" : ""}${count} / ${total}夜`, 76, 238);
-  imgMoon(ctx, W - 150, 160, 76, count / total);
+  ctx.fillText(`${showTitle && title ? title + "　" : ""}${count} / ${total}夜`, 96, 250);
+  imgMoon(ctx, W - 170, 172, 72, count / total);
 
   const byNight = new Map(album.visits.map((v) => [v.night, v]));
   const x0 = (W - (cols * tileW + (cols - 1) * gap)) / 2;
@@ -386,10 +437,10 @@ async function makeAlbumImage(album, title, { showName = true, showTitle = true,
     ctx.fillStyle = v ? "#d6b365" : "#5d6b86";
     ctx.font = `600 22px ${IMG_SANS}`;
     ctx.fillText(`第${n}夜 ${cakeNightDate(album.start_date, n)}`, x + 14, y + 32);
-    if (v && streaks.has(n)) { ctx.fillStyle = "#fff3c4"; imgStar(ctx, x + tileW - 22, y + 24, 11); }
+
     if (v) {
       const im = await imgLoad(v.image);
-      if (im) ctx.drawImage(im, x + (tileW - 170) / 2, y + 40, 170, 170);
+      if (im) ctx.drawImage(im, x + (tileW - 164) / 2, y + 40, 164, 164);
       ctx.textAlign = "center";
       ctx.fillStyle = "#f4ecd2";
       ctx.font = `500 22px ${IMG_FONT}`;
@@ -431,7 +482,7 @@ async function makeCertificate(album, title, { frame = "full" } = {}) {
   ctx.fillStyle = "#d6b365";
   ctx.font = `600 28px ${IMG_SANS}`;
   const phase = certPhase(count, total);
-  ctx.fillText(`CERTIFICATE OF THE ${phase.en}`, W / 2, frame === "full" ? 150 : 132);
+  ctx.fillText(`CERTIFICATE OF THE ${phase.en}`, W / 2, 140);
   ctx.fillStyle = imgGold(ctx, 300, 0, 780, 0);
   ctx.font = `600 96px ${IMG_FONT}`;
   imgCenterText(ctx, `${phase.name}証明書`, W / 2, 252, W - 200);
