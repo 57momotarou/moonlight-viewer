@@ -1,4 +1,4 @@
-// staff.js — 従業員用ケーキ受付：合言葉 → 名前を選ぶ → 記録。新しい人には4桁の番号を発行。
+// staff.js — 従業員用ケーキ受付：合言葉 → 受け付ける人（従業員）→ 名前を選んで記録。新しい人には4桁の番号を発行。
 "use strict";
 
 const PASS_KEY = "moonlight-cake-staff-pass";
@@ -6,9 +6,9 @@ const STAFF_KEY = "moonlight-cake-staff-name";
 const $ = (id) => document.getElementById(id);
 let pass = "";
 let staff = "";
-let info = null;
+let info = null;       // cake_staff_login の結果
 let selNight = null;   // 記録する夜（null = 今夜）
-let chips = [];        // { name, isNew, code }
+let chips = [];        // { name, isNew, fromApp, code }
 let suggestions = [];
 let searchTimer = null;
 let searchSeq = 0;
@@ -18,7 +18,7 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.remove("hidden");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.add("hidden"), 2600);
+  toast.timer = setTimeout(() => t.classList.add("hidden"), 2800);
 }
 
 function nameKey(s) {
@@ -31,8 +31,23 @@ function cleanName(s) {
 }
 
 function timeText(iso) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
+  return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
+}
+
+function testArgs() {
+  const t = cakeTestNight();
+  return t === null ? {} : { p_test_night: t };
+}
+
+// ---------- 夜 ----------
+function maxNight() {
+  return info ? Math.min(info.night, info.total_nights) : 0;
+}
+function targetNight() {
+  return selNight || maxNight();
+}
+function isLate() {
+  return Boolean(info) && targetNight() !== info.night;
 }
 
 function renderBadge() {
@@ -42,41 +57,29 @@ function renderBadge() {
   if (night < 1) text = `🌑 開始前（${cakeNightDate(start, 1)}から）`;
   else if (night > total) text = "🌕 企画は終了しました";
   else text = `🌙 第${night}夜 ${cakeNightDate(start, night)}${night === total ? "（最終夜）" : ""}`;
-  $("nightBadge").textContent = text;
+  $("nightBadge").textContent = (CAKE_TEST ? "🧪 " : "") + text;
   renderNightSelect();
-}
-
-function maxNight() {
-  return info ? Math.min(info.night, info.total_nights) : 0;
-}
-
-function targetNight() {
-  return selNight || maxNight();
 }
 
 function renderNightSelect() {
   const sel = $("nightSelect");
   const max = maxNight();
-  if (max < 1) { sel.innerHTML = '<option>開始前</option>'; sel.disabled = true; return; }
+  if (max < 1) { sel.innerHTML = "<option>開始前</option>"; sel.disabled = true; updateLateNote(); return; }
   sel.disabled = false;
+  if (selNight && selNight > max) selNight = null;
   const cur = targetNight();
   let html = "";
   for (let n = max; n >= 1; n--) {
-    const isNow = n === info.night;
-    html += `<option value="${n}"${n === cur ? " selected" : ""}>第${n}夜 ${cakeNightDate(info.start_date, n)}${isNow ? "（今夜）" : ""}</option>`;
+    html += `<option value="${n}"${n === cur ? " selected" : ""}>第${n}夜 ${cakeNightDate(info.start_date, n)}${n === info.night ? "（今夜）" : ""}</option>`;
   }
   sel.innerHTML = html;
   updateLateNote();
 }
 
-function isLate() {
-  return info && targetNight() !== info.night;
-}
-
 function updateLateNote() {
   const n = targetNight();
   const note = $("lateNote");
-  if (isLate()) {
+  if (isLate() && n >= 1) {
     note.textContent = `⚠ 第${n}夜（${cakeNightDate(info.start_date, n)}）の分として、あとから記録します`;
     note.classList.remove("hidden");
   } else {
@@ -86,23 +89,46 @@ function updateLateNote() {
   renderChips();
 }
 
-// ---------- 合言葉 ----------
-async function login(p, s, { quiet = false } = {}) {
+// ---------- 合言葉と受付の人 ----------
+async function login(p, { quiet = false } = {}) {
   try {
-    info = await cakeRpc("cake_staff_login", { p_pass: p });
+    info = await cakeRpc("cake_staff_login", { p_pass: p, ...testArgs() });
     pass = p;
-    staff = s;
     cakeStore(PASS_KEY, p);
-    cakeStore(STAFF_KEY, s);
     $("loginCard").classList.add("hidden");
-    $("deskView").classList.remove("hidden");
-    renderBadge();
-    loadTonight();
-    $("nameInput").focus();
+    const saved = cakeStore(STAFF_KEY);
+    const list = info.employees || [];
+    if (saved && (list.includes(saved) || !list.length)) {
+      chooseStaff(saved);
+    } else {
+      showStaffPicker();
+    }
   } catch (e) {
     if (!quiet) $("loginError").textContent = e.message;
     cakeStore(PASS_KEY, null);
+    $("loginCard").classList.remove("hidden");
   }
+}
+
+function showStaffPicker() {
+  const list = info?.employees || [];
+  $("staffPick").innerHTML = list.map((n) => `<button type="button" class="btn ghost" data-staff="${cakeEsc(n)}">${cakeEsc(n)}</button>`).join("")
+    + `<button type="button" class="btn ghost" data-manual="1">一覧にない</button>`;
+  $("staffManual").classList.toggle("hidden", list.length > 0);
+  $("deskView").classList.add("hidden");
+  $("staffCard").classList.remove("hidden");
+}
+
+function chooseStaff(name) {
+  staff = cleanName(name);
+  if (!staff) return;
+  cakeStore(STAFF_KEY, staff);
+  $("staffName").textContent = staff;
+  $("staffCard").classList.add("hidden");
+  $("deskView").classList.remove("hidden");
+  renderBadge();
+  loadTonight();
+  $("nameInput").focus();
 }
 
 function logout() {
@@ -112,6 +138,7 @@ function logout() {
   chips = [];
   renderChips();
   $("deskView").classList.add("hidden");
+  $("staffCard").classList.add("hidden");
   $("loginCard").classList.remove("hidden");
   $("passInput").value = "";
 }
@@ -121,14 +148,18 @@ function renderSuggest() {
   const typed = cleanName($("nameInput").value);
   if (!typed) { $("suggest").innerHTML = ""; return; }
   const key = nameKey(typed);
-  const exact = suggestions.some((s) => nameKey(s.name) === key);
+  const isCode = /^[0-9０-９]{1,4}$/.test(typed);
+  const exact = isCode || suggestions.some((s) => nameKey(s.name) === key);
   let html = suggestions.map((s, i) => {
     const inChips = chips.some((c) => nameKey(c.name) === nameKey(s.name));
     const isApp = s.source === "app";
     const meta = isApp ? "購入者・アルバムはまだ" : s.tonight ? (isLate() ? "この夜は記録済み" : "今夜は記録済み") : `${s.visits}夜 ・ No.${s.code}`;
-    return `<button type="button" data-i="${i}" class="${s.tonight || inChips ? "done" : ""}">
+    return `<button type="button" data-i="${i}" class="${inChips ? "done" : ""}">
       <span>${cakeEsc(s.name)}</span><span class="meta${isApp ? " app" : ""}">${inChips ? "追加済み" : cakeEsc(meta)}</span></button>`;
   }).join("");
+  if (isCode && !suggestions.length) {
+    html += `<div class="small muted" style="padding:6px 4px">番号「${cakeEsc(typed)}」のアルバムは見つかりません</div>`;
+  }
   if (!exact) {
     html += `<button type="button" data-new="1" class="new"><span>＋ 新しく登録：${cakeEsc(typed)}</span><span class="meta">初めての人</span></button>`;
   }
@@ -143,7 +174,7 @@ function search() {
   searchTimer = setTimeout(async () => {
     const seq = ++searchSeq;
     try {
-      const res = await cakeRpc("cake_staff_search", { p_pass: pass, p_query: q, p_night: targetNight() });
+      const res = await cakeRpc("cake_staff_search", { p_pass: pass, p_query: q, p_night: targetNight() || null, ...testArgs() });
       if (seq !== searchSeq) return;
       suggestions = Array.isArray(res) ? res : [];
       renderSuggest();
@@ -167,8 +198,8 @@ function renderChips() {
   $("chips").innerHTML = chips.map((c, i) => `<span class="chip">${cakeEsc(c.name)}${c.isNew ? '<span class="tag">はじめて</span>' : ""}
     <button type="button" data-rm="${i}" aria-label="${cakeEsc(c.name)}を外す">×</button></span>`).join("");
   const n = chips.length;
-  $("recordBtn").disabled = n === 0;
   const when = isLate() ? `第${targetNight()}夜の分として` : "";
+  $("recordBtn").disabled = n === 0;
   $("recordBtn").textContent = n > 1 ? `${when}ケーキセットを記録（${n}人・一緒に来た）` : `${when}ケーキセットを記録`;
   $("recordError").textContent = "";
 }
@@ -182,13 +213,17 @@ async function record() {
   const btn = $("recordBtn");
   btn.disabled = true;
   try {
-    const res = await cakeRpc("cake_staff_record", { p_pass: pass, p_staff: staff, p_names: chips.map((c) => c.name), p_night: targetNight() });
+    const res = await cakeRpc("cake_staff_record", {
+      p_pass: pass, p_staff: staff, p_names: chips.map((c) => c.name), p_night: targetNight() || null, ...testArgs()
+    });
+    const where = res.late ? "この夜" : "今夜";
     $("result").innerHTML = res.records.map((r) => {
-      if (r.already) return `<div class="r"><b>${cakeEsc(r.name)}</b><div class="small muted">${res.late ? "この夜" : "今夜"}はもう記録済みです（スタンプは1晩1つ）。番号 ${cakeEsc(r.code)}</div></div>`;
+      if (r.already) return `<div class="r"><b>${cakeEsc(r.name)}</b><div class="small muted">${where}のスタンプはもうあります（1晩1つ）。${res.together ? "一緒に来た人は追加しました。" : ""}番号 ${cakeEsc(r.code)}</div></div>`;
       if (r.is_new) return `<div class="r new"><b>${cakeEsc(r.name)}</b>　はじめてのお客さん<div class="code">${cakeEsc(r.code)}</div>
         <div class="small">「アルバム番号は <b>${cakeEsc(r.code)}</b> です」と伝えてください</div></div>`;
       return `<div class="r"><b>${cakeEsc(r.name)}</b>　${r.visits}夜目<div class="small muted">アルバム番号 ${cakeEsc(r.code)}</div></div>`;
-    }).join("") + (res.records.length > 1 ? `<div class="small muted">🫖 一緒に来た人としてまとめました</div>` : "")
+    }).join("")
+      + (res.together ? `<div class="small muted">🫖 一緒に来た人として記録しました</div>` : "")
       + (res.late ? `<div class="small" style="color:var(--warn)">第${res.night}夜（${cakeNightDate(info.start_date, res.night)}）の分として記録しました</div>` : "");
     $("resultCard").classList.remove("hidden");
     chips = [];
@@ -205,13 +240,12 @@ async function record() {
 
 async function loadTonight() {
   try {
-    const res = await cakeRpc("cake_staff_tonight", { p_pass: pass, p_night: targetNight() || null });
-    if (info && res.current !== info.night) { info.night = res.current; if (selNight && selNight > maxNight()) selNight = null; renderBadge(); }
-    const groups = new Map();
-    res.records.forEach((r) => { if (r.group_id) groups.set(r.group_id, (groups.get(r.group_id) || 0) + 1); });
+    const res = await cakeRpc("cake_staff_tonight", { p_pass: pass, p_night: targetNight() || null, ...testArgs() });
+    if (info && res.current !== info.night) { info.night = res.current; renderBadge(); }
     $("tonightCount").textContent = `${res.records.length}人`;
     $("tonightList").innerHTML = res.records.map((r) => `<div class="li">
-        <div><b>${cakeEsc(r.name)}</b>${r.group_id && groups.get(r.group_id) > 1 ? " 🫖" : ""}${r.late ? '<span class="late">あとから記録</span>' : ""}
+        <div><b>${cakeEsc(r.name)}</b>${r.late ? '<span class="late">あとから記録</span>' : ""}
+        ${r.together.length ? `<div class="meta">🫖 ${r.together.map(cakeEsc).join("・")} と</div>` : ""}
         <div class="meta">${timeText(r.recorded_at)} ・ No.${cakeEsc(r.code)} ・ ${cakeEsc(r.staff || "")}</div></div>
         <button class="btn ghost sm" type="button" data-undo="${cakeEsc(r.id)}" data-name="${cakeEsc(r.name)}">取消</button></div>`).join("")
       || '<div class="small muted">まだ記録はありません</div>';
@@ -221,7 +255,7 @@ async function loadTonight() {
 }
 
 async function undo(id, name) {
-  if (!confirm(`${name} さんの第${targetNight()}夜の記録を取り消しますか？`)) return;
+  if (!confirm(`${name} さんの第${targetNight()}夜の記録を取り消しますか？\n（一緒に来た記録も外れます）`)) return;
   try {
     await cakeRpc("cake_staff_undo", { p_pass: pass, p_visit_id: id });
     toast("取り消しました");
@@ -233,16 +267,32 @@ async function undo(id, name) {
 
 // ---------- 起動 ----------
 function start() {
-  $("staffInput").value = cakeStore(STAFF_KEY) || "";
+  if (CAKE_TEST) {
+    $("testBanner").classList.remove("hidden");
+    const sel = $("testNightSelect");
+    sel.innerHTML = cakeTestOptions(18);
+    sel.value = String(cakeTestNight());
+    sel.addEventListener("change", () => {
+      setCakeTestNight(Number(sel.value));
+      selNight = null;
+      if (pass) login(pass, { quiet: true });
+    });
+  }
   $("loginForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const p = $("passInput").value;
-    const s = cleanName($("staffInput").value);
     if (!p) { $("loginError").textContent = "合言葉を入れてください"; return; }
-    if (!s) { $("loginError").textContent = "あなたの名前を入れてください"; return; }
     $("loginError").textContent = "";
-    login(p, s);
+    login(p);
   });
+  $("staffPick").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.manual) { $("staffManual").classList.remove("hidden"); $("staffInput").focus(); return; }
+    chooseStaff(b.dataset.staff);
+  });
+  $("staffManualBtn").addEventListener("click", () => chooseStaff($("staffInput").value));
+  $("changeStaffBtn").addEventListener("click", showStaffPicker);
   $("logoutBtn").addEventListener("click", logout);
   $("nameInput").addEventListener("input", search);
   $("nameInput").addEventListener("keydown", (e) => {
@@ -258,7 +308,6 @@ function start() {
       addChip({ name: cleanName($("nameInput").value), isNew: true, code: "" });
     } else {
       const s = suggestions[Number(b.dataset.i)];
-      if (s.tonight) { toast(`${s.name} さんはこの夜もう記録済みです`); }
       if (s.source === "app") addChip({ name: s.name, isNew: true, fromApp: true, code: "" });
       else addChip({ name: s.name, isNew: false, code: s.code });
     }
@@ -284,11 +333,10 @@ function start() {
     const b = e.target.closest("[data-undo]");
     if (b) undo(b.dataset.undo, b.dataset.name);
   });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && pass) loadTonight(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && pass && staff) loadTonight(); });
 
   const saved = cakeStore(PASS_KEY);
-  const savedStaff = cakeStore(STAFF_KEY);
-  if (saved && savedStaff) login(saved, savedStaff, { quiet: true });
+  if (saved) login(saved, { quiet: true });
 }
 
 start();

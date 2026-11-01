@@ -1,5 +1,5 @@
 // sw.js — オフライン用キャッシュ。ファイルを変えたら CACHE の版を必ず上げる（iPhoneに古い画面が残るため）。
-const CACHE = "moonlight-viewer-v27";
+const CACHE = "moonlight-viewer-v32";
 const APP_ASSETS = [
   "./",
   "./index.html",

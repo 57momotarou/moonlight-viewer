@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600&display=swap" rel="stylesheet">
 <link rel="icon" href="../icons/icon-192.png">
-<link rel="stylesheet" href="album.css?v=2">
+<link rel="stylesheet" href="album.css?v=5">
 </head>
 <body>
 <div class="bg-stars" id="bgStars" aria-hidden="true"></div>
@@ -24,23 +24,30 @@
     </div>
   </header>
 
+  <div class="test-banner hidden" id="testBanner">
+    <b>テストモード</b>　本番とは別の記録です。
+    <label>テストの「今夜」<select id="testNightSelect"></select></label>
+  </div>
+
   <section class="card" id="skyCard">
     <div class="night-badge" id="nightBadge">🌙 読み込み中…</div>
     <div class="sky" id="sky" role="img" aria-label="Moonlightの夜空"></div>
     <div class="small muted" id="skyNext"></div>
     <div class="progress"><i id="skyBar" style="width:0"></i></div>
     <div class="stages" id="stages"></div>
+    <div class="album-tools"><button class="btn ghost sm" type="button" id="saveSkyBtn">夜空を画像で保存</button></div>
   </section>
 
   <section class="card hidden" id="finalCard">
     <h2>🌕 満月の夜に、灯してくれた人たち</h2>
     <div class="names-cloud" id="finalNames"></div>
+    <h3 class="sub-h" id="finalMessagesTitle">街への寄せ書き</h3>
     <div class="messages" id="finalMessages"></div>
   </section>
 
   <section class="card" id="tonightCard">
     <div class="mystery">
-      <div class="dome" aria-hidden="true">🍰</div>
+      <div class="dome" aria-hidden="true">？</div>
       <div>
         <h2 id="tonightTitle">今夜のケーキは、お店でのお楽しみ</h2>
         <p class="small muted" id="tonightText">毎晩ちがうケーキセットが登場します。中身はMoonlightで頼んだ人だけのひみつ。</p>
@@ -86,27 +93,65 @@
       </div>
     </div>
 
-    <div class="card" id="teaserCard">
-      <h2>明日の夜のケーキ</h2>
-      <div class="teaser" id="teaser"></div>
+    <nav class="tabs" role="tablist" aria-label="アルバムのメニュー">
+      <button type="button" role="tab" class="tab active" data-tab="collection" aria-selected="true">図鑑</button>
+      <button type="button" role="tab" class="tab" data-tab="images" aria-selected="false">画像・飾り</button>
+      <button type="button" role="tab" class="tab" data-tab="message" aria-selected="false">寄せ書き</button>
+    </nav>
+
+    <div data-panel="collection">
+      <div class="card" id="teaserCard">
+        <h2>明日の夜のケーキ</h2>
+        <div class="teaser" id="teaser"></div>
+      </div>
+
+      <div class="card" id="gridCard">
+        <h2>ケーキ図鑑</h2>
+        <div class="complete-banner">🌕 18夜すべてを過ごしたあなたは「満月の住人」</div>
+        <p class="small muted" style="margin:-4px 0 10px">✦ が光っているのは、前の夜から続けて来た夜（連続来店）です。</p>
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div class="card hidden" id="pairCard">
+        <h2>🫖 一緒に過ごした夜</h2>
+        <div class="pairs" id="pairs"></div>
+      </div>
     </div>
 
-    <div class="card" id="gridCard">
-      <h2>ケーキ図鑑</h2>
-      <div class="complete-banner">🌕 18夜すべてを過ごしたあなたは「満月の住人」</div>
-      <div class="grid" id="grid"></div>
+    <div data-panel="images" class="hidden">
+      <div class="card">
+        <h2>フレーム</h2>
+        <p class="small muted" style="margin:0 0 10px">集めた夜の数で、画像のフレームが増えていきます。流れ星は2夜続けて来ると使えます。</p>
+        <div class="frames" id="framePicker"></div>
+      </div>
+
+      <div class="card">
+        <h2>コレクションを画像に</h2>
+        <div class="save-panel">
+          <img class="preview" id="albumPreview" alt="コレクション画像のプレビュー">
+          <div class="checks">
+            <label><input type="checkbox" id="optName" checked>自分の名前を入れる</label>
+            <label><input type="checkbox" id="optTitle" checked>称号を入れる</label>
+            <label><input type="checkbox" id="optShooting">流れ星を入れる</label>
+          </div>
+          <button class="btn block" type="button" id="saveAlbumBtn">この画像を保存</button>
+        </div>
+      </div>
+
+      <div class="card" id="certCard">
+        <h2>🌙 月の証明書</h2>
+        <div id="certBody"></div>
+      </div>
     </div>
 
-    <div class="card hidden" id="pairCard">
-      <h2>🫖 一緒に過ごした夜</h2>
-      <div class="pairs" id="pairs"></div>
-    </div>
-
-    <div class="card">
-      <h2>ひとこと寄せ書き</h2>
-      <p class="small muted" style="margin:0 0 8px">Moonlightへのひとことを残せます。最終夜にみんなの寄せ書きとして公開されます（80文字まで）。</p>
-      <textarea id="messageInput" maxlength="80" placeholder="例：最後まで通います！"></textarea>
-      <div class="row"><span class="small muted" id="messageCount">0 / 80</span><button class="btn sm" type="button" id="messageBtn">残す</button></div>
+    <div data-panel="message" class="hidden">
+      <div class="card">
+        <h2>街への寄せ書き</h2>
+        <p class="small muted" style="margin:0 0 8px">この街へのひとことを残せます。最終夜にみんなの寄せ書きとして公開されます（80文字まで）。</p>
+        <textarea id="messageInput" maxlength="80" placeholder="例：この街で過ごせて楽しかった！"></textarea>
+        <div class="small" id="messageStatus" style="margin-top:6px"></div>
+        <div class="row"><span class="small muted" id="messageCount">0 / 80</span><button class="btn sm" type="button" id="messageBtn">残す</button></div>
+      </div>
     </div>
   </section>
 
@@ -120,7 +165,8 @@
 
 <script src="../config.js"></script>
 <script src="album-config.js"></script>
-<script src="cake-api.js?v=1"></script>
-<script src="album.js?v=1"></script>
+<script src="cake-api.js?v=3"></script>
+<script src="album-image.js?v=6"></script>
+<script src="album.js?v=6"></script>
 </body>
 </html>

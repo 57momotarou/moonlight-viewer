@@ -60,3 +60,25 @@ const CAKE_STAGES = [
   { name: "十三夜", icon: "🌔" },
   { name: "満月", icon: "🌕" }
 ];
+
+// ---- テストモード（URLに ?test=1）。本番とは別の記録で、夜を自由に動かせる ----
+const CAKE_TEST = new URLSearchParams(location.search).has("test");
+const CAKE_TEST_KEY = "moonlight-cake-test-night";
+
+function cakeTestNight() {
+  if (!CAKE_TEST) return null;
+  let v = 1;
+  try { v = Number(sessionStorage.getItem(CAKE_TEST_KEY) || 1); } catch {}
+  return Number.isInteger(v) && v >= 0 ? v : 1;
+}
+
+function setCakeTestNight(n) {
+  try { sessionStorage.setItem(CAKE_TEST_KEY, String(n)); } catch {}
+}
+
+function cakeTestOptions(total = 18) {
+  let html = `<option value="0">開始前</option>`;
+  for (let n = 1; n <= total; n++) html += `<option value="${n}">第${n}夜${n === total ? "（最終夜）" : ""}</option>`;
+  html += `<option value="${total + 1}">終了後</option>`;
+  return html;
+}
