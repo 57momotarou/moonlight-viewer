@@ -1,5 +1,5 @@
 // sw.js — オフライン用キャッシュ。ファイルを変えたら CACHE の版を必ず上げる（iPhoneに古い画面が残るため）。
-const CACHE = "moonlight-viewer-v34";
+const CACHE = "moonlight-viewer-v36";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -44,7 +44,6 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.hostname.endsWith(".supabase.co")) return;
-  if (url.pathname.includes("/album/")) return; // 18夜の月（お客さん用・受付）はキャッシュしない
 
   event.respondWith(
     fetch(request)

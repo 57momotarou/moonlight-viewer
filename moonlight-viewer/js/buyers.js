@@ -71,11 +71,11 @@ function openBuyerDetail(name) {
   const deliveries = (state.deliveryOrders || []).filter((d) => buyerMatchesName(summary.name, d.buyerName)).sort((a, b) => String(b.recordedAt || "").localeCompare(String(a.recordedAt || "")));
   const storeTotal = storeRecords.reduce((sum, r) => sum + recordAmounts(r).total, 0);
   const aliases = profile?.aliases?.length ? profile.aliases.join(" / ") : "なし";
-  const recentStore = storeRecords.slice(0, 6).map((r) => {
+  const recentStore = storeRecords.map((r) => {
     const a = recordAmounts(r);
     return `<article class="detail-sale-row"><div><strong>${invoiceAt(r.invoiceAt || r.saleDate)}</strong><span>${esc(employeeForRecord(r)?.name || r.employeeName || "-")}</span></div><div class="money sm">${money(a.total)}</div></article>`;
   }).join("") || `<div class="empty-state">店頭購入履歴はありません</div>`;
-  const recentDelivery = deliveries.slice(0, 6).map((d) => `<article class="detail-sale-row"><div><strong>${invoiceAt(d.recordedAt)}</strong><span>${esc(d.orderNo || "デリバリー")}</span></div><div class="pill">${qty(num(d.foodQty) + num(d.drinkQty) + num(d.jointQty))}</div></article>`).join("") || `<div class="empty-state">デリバリー履歴はありません</div>`;
+  const recentDelivery = deliveries.map((d) => `<article class="detail-sale-row"><div><strong>${invoiceAt(d.recordedAt)}</strong><span>${esc(d.orderNo || "デリバリー")}</span></div><div class="pill">${qty(num(d.foodQty) + num(d.drinkQty) + num(d.jointQty))}</div></article>`).join("") || `<div class="empty-state">デリバリー履歴はありません</div>`;
   els.buyerDetailTitle.textContent = `${summary.name} の詳細`;
   els.buyerDetailContent.innerHTML = `
       <div class="detail-profile-grid">
@@ -91,8 +91,10 @@ function openBuyerDetail(name) {
         ${amountCell("ジョイント", qty(summary.joint))}
         ${amountCell("その他売上", money(summary.other))}
       </div>
-      <div class="detail-section"><h3>最近の店頭購入</h3><div class="detail-list">${recentStore}</div></div>
-      <div class="detail-section"><h3>最近のデリバリー</h3><div class="detail-list">${recentDelivery}</div></div>`;
+      <div class="detail-section"><h3>店頭の購入履歴（${storeRecords.length}件）</h3><div class="detail-list detail-scroll">${recentStore}</div></div>
+      <div class="detail-section"><h3>デリバリーの履歴（${deliveries.length}件）</h3><div class="detail-list detail-scroll">${recentDelivery}</div></div>
+      <div class="detail-section"><h3>18夜の月</h3><div class="detail-list" id="buyerCakeBody"><div class="empty-state">読み込み中…</div></div></div>`;
+  loadBuyerCake(profile?.id || "");
   els.buyerDetailModal.classList.remove("hidden");
   els.buyerDetailModal.setAttribute("aria-hidden", "false");
   document.body.classList.add("detail-open");
@@ -115,4 +117,25 @@ function renderBuyers() {
       </article>`
       )
       .join("") || empty("購入者がいません");
+}
+
+// 18夜の月の参加状況（viewer でログインしていれば読める。アルバムが購入者とつながっている場合）
+async function loadBuyerCake(buyerId) {
+  const box = document.getElementById("buyerCakeBody");
+  if (!box) return;
+  if (!buyerId) { box.innerHTML = `<div class="empty-state">購入者として登録されていないため、18夜の月とはつながっていません</div>`; return; }
+  try {
+    const res = await authFetch("/rest/v1/rpc/cake_buyer_participation", { method: "POST", body: JSON.stringify({ p_buyer_id: String(buyerId) }) });
+    if (!res.ok) throw new Error(`読み込めませんでした (${res.status})`);
+    const list = await res.json();
+    if (!Array.isArray(list) || !list.length) { box.innerHTML = `<div class="empty-state">参加していません</div>`; return; }
+    const status = { approved: "公開", pending: "公開", hidden: "非公開" };
+    box.innerHTML = list.map((c) => `<article class="detail-sale-row cake-row"><div>
+        <strong>${esc(c.name)}　No.${esc(c.code)}　${c.visits.length}夜</strong>
+        <span>${c.visits.map((v) => `第${v.night}夜 ${esc(v.cake || "")}${v.together.length ? `（🫖 ${v.together.map(esc).join("・")}）` : ""}`).join("<br>") || "来店の記録なし"}</span>
+        <span>寄せ書き：${c.message ? `「${esc(c.message)}」（${status[c.message_status] || ""}）` : "なし"}</span>
+      </div></article>`).join("");
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">18夜の月を読み込めませんでした：${esc(error.message || String(error))}</div>`;
+  }
 }
