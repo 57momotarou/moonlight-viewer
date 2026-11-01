@@ -216,3 +216,13 @@ button.pair-card{width:100%;color:inherit;font:inherit;cursor:pointer;text-align
 .streak-badge{display:inline-block;margin:0 0 10px;padding:5px 12px;border-radius:999px;background:rgba(255,243,196,.12);color:#fff3c4;font-size:13px}
 .cert-lock{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:14px}
 .cert-lock b{font-size:30px}
+
+/* 画像の保存（長押し） */
+.save-overlay{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:16px;background:rgba(3,6,14,.92)}
+.save-overlay-inner{width:min(100%,460px);max-height:100%;overflow:auto;text-align:center}
+.save-overlay img{display:block;width:100%;border-radius:12px;margin:10px 0 14px;-webkit-touch-callout:default;user-select:auto}
+.save-overlay-tip{margin:0;color:var(--gold2);font-size:14px;line-height:1.7}
+.tile.today{cursor:pointer}
+.name-req{font-size:12px;color:var(--warn);margin-top:2px}
+.linklike.small{font-size:12px}
+.tonight-note{display:inline-block;margin:0 0 12px;padding:6px 12px;border-radius:999px;background:rgba(143,182,255,.12);color:#cfe0ff;font-size:13px}

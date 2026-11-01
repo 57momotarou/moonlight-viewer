@@ -272,6 +272,9 @@ function renderAlbum() {
   const seen = getSeen();
 
   $("albumName").textContent = a.name;
+  $("nameReq").innerHTML = a.name_request
+    ? `名前の変更を確認中：「${cakeEsc(a.name_request.new_name)}」`
+    : `<button type="button" class="linklike small" id="nameFixBtn">名前がまちがっているときは</button>`;
   $("albumTitle").textContent = `${titleFor(count)}　・　${count} / ${total}夜${a.maxStreak >= 2 ? `　・　✦ 最長${a.maxStreak}夜連続` : ""}`;
   $("myMoon").innerHTML = moonSvg(count / total, 76, true);
   $("gridCard").classList.toggle("complete", count >= total);
@@ -287,7 +290,7 @@ function renderAlbum() {
       html += `<button class="tile got${v.together.length ? " pair" : ""}${v.streak ? " streak" : ""}${finalCls}" data-show="${n}" type="button"><span class="n">${date}</span>
         <img src="${cakeEsc(v.image)}" alt="" loading="lazy"><span class="t">${cakeEsc(v.cake)}</span></button>`;
     } else if (n === a.night) {
-      html += `<div class="tile today${finalCls}"><span class="n">${date}</span>今夜<br>？</div>`;
+      html += `<button type="button" class="tile today${finalCls}" data-tonight="1"><span class="n">${date}</span>今夜の<br>ケーキを見る</button>`;
     } else if (n < a.night) {
       html += `<div class="tile passed${finalCls}"><span class="n">${date}</span>🌫<br>夜空の向こう</div>`;
     } else {
@@ -343,6 +346,53 @@ function cardInfoHtml(v, n, reveal) {
     </div>`;
 }
 
+function showTonight() {
+  const t = album?.tonight;
+  if (!t) return;
+  saveState = null;
+  $("modalCard").className = "modal-card reveal";
+  $("modalCard").dataset.night = "";
+  $("modalCard").innerHTML = `
+    <div class="kicker">第${t.night}夜 ・ ${cakeNightDate(album.start_date, t.night)} ・ 今夜のケーキセット</div>
+    <img src="${cakeEsc(t.image)}" alt="${cakeEsc(t.cake)}">
+    <h3>${cakeEsc(t.cake)}</h3>
+    <p class="drink">＋ ${cakeEsc(t.drink)}</p>
+    <p class="pr">${cakeEsc(t.pr)}</p>
+    <div class="tonight-note">Moonlightで頼むと、このカードがアルバムに入ります</div>
+    <div class="actions"><button class="btn" type="button" data-act="close">閉じる</button></div>`;
+  $("modal").classList.remove("hidden");
+}
+
+function showNameRequest() {
+  saveState = null;
+  $("modalCard").className = "modal-card";
+  $("modalCard").dataset.night = "";
+  $("modalCard").innerHTML = `
+    <div class="kicker">名前の変更</div>
+    <h3>正しい名前を教えてください</h3>
+    <p class="small muted">いまの名前：${cakeEsc(album.name)}<br>店長が確認してから、アルバムとお店の記録の名前が変わります。</p>
+    <div class="save-panel"><div class="add"><input type="text" id="newNameInput" maxlength="30" value="${cakeEsc(album.name)}"></div></div>
+    <p class="error" id="nameReqError"></p>
+    <div class="actions">
+      <button class="btn" type="button" data-act="sendname">送る</button>
+      <button class="btn ghost" type="button" data-act="close">やめる</button>
+    </div>`;
+  $("modal").classList.remove("hidden");
+  $("newNameInput").focus();
+}
+
+async function sendNameRequest() {
+  const name = $("newNameInput").value.trim();
+  try {
+    await cakeRpc("cake_request_name", { p_code: code, p_name: name });
+    closeModal();
+    toast("名前の変更を送りました。店長の確認をお待ちください");
+    await openAlbum(code, { quiet: true });
+  } catch (e) {
+    $("nameReqError").textContent = e.message;
+  }
+}
+
 function showCard(n, reveal) {
   const v = album?.visits.find((x) => x.night === n);
   if (!v) return;
@@ -371,7 +421,6 @@ function openSavePanel(n) {
       <img class="preview" id="savePreview" alt="保存する画像のプレビュー">
       <div class="small muted" style="margin:0 0 6px">画像に入れる名前（入れなくてもOK）</div>
       <div class="checks" id="saveChecks"></div>
-      <div class="add"><input type="text" id="saveAddName" maxlength="30" placeholder="ほかの名前を入れる"><button class="btn ghost sm" type="button" data-act="add">追加</button></div>
       <div class="small muted" style="margin:0 0 6px">フレーム</div>
       <div class="frames" id="saveFrames"></div>
       <div class="checks"><label style="${hasStreak() ? "" : "opacity:.45"}"><input type="checkbox" id="saveShooting"${saveState.shooting ? " checked" : ""}${hasStreak() ? "" : " disabled"}>流れ星を入れる${hasStreak() ? "" : '<span class="small muted">（2夜続けて来ると使えます）</span>'}</label></div>
@@ -387,11 +436,12 @@ function openSavePanel(n) {
 
 function renderSaveChecks() {
   $("saveChecks").innerHTML = saveState.names.map((x, i) =>
-    `<label><input type="checkbox" data-i="${i}"${x.on ? " checked" : ""}>${cakeEsc(x.name)}${i === 0 ? '<span class="small muted">（あなた）</span>' : ""}</label>`).join("");
+    `<label><input type="checkbox" data-i="${i}"${x.on ? " checked" : ""}>${i === 0 ? "" : '<span class="small muted">with</span>'}${cakeEsc(x.name)}${i === 0 ? '<span class="small muted">（あなた）</span>' : ""}</label>`).join("");
 }
 
 function chosenNames() {
-  return saveState.names.filter((x) => x.on).map((x) => x.name);
+  const [self, ...others] = saveState.names;
+  return { selfName: self.on ? self.name : "", withNames: others.filter((x) => x.on).map((x) => x.name) };
 }
 
 function refreshPreview() {
@@ -399,7 +449,7 @@ function refreshPreview() {
   clearTimeout(saveState.timer);
   saveState.timer = setTimeout(async () => {
     const v = album.visits.find((x) => x.night === saveState.night);
-    const cv = await makeCardImage({ visit: v, names: chosenNames(), startDate: album.start_date, total: album.total_nights, frame: saveState.frame, shooting: saveState.shooting });
+    const cv = await makeCardImage({ visit: v, ...chosenNames(), startDate: album.start_date, total: album.total_nights, frame: saveState.frame, shooting: saveState.shooting });
     const img = $("savePreview");
     if (img) img.src = cv.toDataURL("image/jpeg", 0.8);
     saveState.canvas = cv;
@@ -411,7 +461,7 @@ async function downloadCard() {
   btn.disabled = true;
   try {
     const v = album.visits.find((x) => x.night === saveState.night);
-    const cv = await makeCardImage({ visit: v, names: chosenNames(), startDate: album.start_date, total: album.total_nights, frame: saveState.frame, shooting: saveState.shooting });
+    const cv = await makeCardImage({ visit: v, ...chosenNames(), startDate: album.start_date, total: album.total_nights, frame: saveState.frame, shooting: saveState.shooting });
     const r = await saveCanvas(cv, `moonlight-18nights-${String(saveState.night).padStart(2, "0")}.png`);
     if (r === "downloaded") toast("画像を保存しました");
   } catch (e) {
@@ -530,6 +580,7 @@ function start() {
   $("grid").addEventListener("click", (e) => {
     const open = e.target.closest("[data-open]");
     const show = e.target.closest("[data-show]");
+    if (e.target.closest("[data-tonight]")) return showTonight();
     if (open) showCard(Number(open.dataset.open), true);
     else if (show) showCard(Number(show.dataset.show), false);
   });
@@ -545,14 +596,7 @@ function start() {
     else if (act === "save") openSavePanel(n);
     else if (act === "back") showCard(n, false);
     else if (act === "download") downloadCard();
-    else if (act === "add") {
-      const input = $("saveAddName");
-      const name = input.value.trim().replace(/\s+/g, " ");
-      if (name && !saveState.names.some((x) => x.name === name)) saveState.names.push({ name, on: true });
-      input.value = "";
-      renderSaveChecks();
-      refreshPreview();
-    }
+    else if (act === "sendname") sendNameRequest();
   });
   $("modal").addEventListener("change", (e) => {
     if (!saveState) return;
@@ -579,11 +623,9 @@ function start() {
   ["optName", "optTitle", "optShooting"].forEach((id) => $(id).addEventListener("change", refreshAlbumPreview));
   $("certBody").addEventListener("click", (e) => { if (e.target.id === "saveCertBtn") saveWhole("cert"); });
   $("modal").addEventListener("keydown", (e) => {
-    if (e.target.id === "saveAddName" && e.key === "Enter" && !e.isComposing) {
-      e.preventDefault();
-      $("modalCard").querySelector('[data-act="add"]').click();
-    }
+    if (e.target.id === "newNameInput" && e.key === "Enter" && !e.isComposing) { e.preventDefault(); sendNameRequest(); }
   });
+  $("nameReq").addEventListener("click", (e) => { if (e.target.id === "nameFixBtn") showNameRequest(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("modal").classList.contains("hidden")) closeModal(); });
   $("closeBtn").addEventListener("click", closeAlbum);
   $("reloadBtn").addEventListener("click", async () => { await refresh(); toast("最新の状態にしました"); });

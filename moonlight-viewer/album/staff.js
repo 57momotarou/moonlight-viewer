@@ -1,4 +1,4 @@
-// staff.js — 従業員用ケーキ受付：合言葉 → 受け付ける人（従業員）→ 名前を選んで記録。新しい人には4桁の番号を発行。
+// staff.js — 従業員用ケーキ受付：受け付ける人（従業員）と合言葉 → 名前か番号で選んで記録。新しい人には4桁の番号を発行。
 "use strict";
 
 const PASS_KEY = "moonlight-cake-staff-pass";
@@ -89,46 +89,54 @@ function updateLateNote() {
   renderChips();
 }
 
-// ---------- 合言葉と受付の人 ----------
-async function login(p, { quiet = false } = {}) {
+// ---------- 合言葉と受付の人（同じ画面） ----------
+async function loadEmployees() {
+  const sel = $("staffSelect");
+  let list = [];
+  try { list = await cakeRpc("cake_staff_employees"); } catch {}
+  const saved = cakeStore(STAFF_KEY) || "";
+  sel.innerHTML = `<option value="">選んでください</option>`
+    + (list || []).map((n) => `<option value="${cakeEsc(n)}">${cakeEsc(n)}</option>`).join("")
+    + `<option value="__manual">一覧にない（入力する）</option>`;
+  if (saved && list.includes(saved)) sel.value = saved;
+  else if (saved) { sel.value = "__manual"; $("staffInput").value = saved; }
+  toggleManual();
+}
+
+function toggleManual() {
+  $("staffInput").classList.toggle("hidden", $("staffSelect").value !== "__manual");
+}
+
+function chosenStaffName() {
+  const v = $("staffSelect").value;
+  return cleanName(v === "__manual" ? $("staffInput").value : v);
+}
+
+async function login(p, name, { quiet = false } = {}) {
   try {
     info = await cakeRpc("cake_staff_login", { p_pass: p, ...testArgs() });
     pass = p;
+    staff = name;
     cakeStore(PASS_KEY, p);
+    cakeStore(STAFF_KEY, name);
+    $("staffName").textContent = staff;
     $("loginCard").classList.add("hidden");
-    const saved = cakeStore(STAFF_KEY);
-    const list = info.employees || [];
-    if (saved && (list.includes(saved) || !list.length)) {
-      chooseStaff(saved);
-    } else {
-      showStaffPicker();
-    }
+    $("deskView").classList.remove("hidden");
+    renderBadge();
+    loadTonight();
+    $("nameInput").focus();
   } catch (e) {
     if (!quiet) $("loginError").textContent = e.message;
     cakeStore(PASS_KEY, null);
+    $("deskView").classList.add("hidden");
     $("loginCard").classList.remove("hidden");
   }
 }
 
-function showStaffPicker() {
-  const list = info?.employees || [];
-  $("staffPick").innerHTML = list.map((n) => `<button type="button" class="btn ghost" data-staff="${cakeEsc(n)}">${cakeEsc(n)}</button>`).join("")
-    + `<button type="button" class="btn ghost" data-manual="1">一覧にない</button>`;
-  $("staffManual").classList.toggle("hidden", list.length > 0);
+function showLogin() {
   $("deskView").classList.add("hidden");
-  $("staffCard").classList.remove("hidden");
-}
-
-function chooseStaff(name) {
-  staff = cleanName(name);
-  if (!staff) return;
-  cakeStore(STAFF_KEY, staff);
-  $("staffName").textContent = staff;
-  $("staffCard").classList.add("hidden");
-  $("deskView").classList.remove("hidden");
-  renderBadge();
-  loadTonight();
-  $("nameInput").focus();
+  $("loginCard").classList.remove("hidden");
+  if (pass) $("passInput").value = pass;
 }
 
 function logout() {
@@ -138,7 +146,6 @@ function logout() {
   chips = [];
   renderChips();
   $("deskView").classList.add("hidden");
-  $("staffCard").classList.add("hidden");
   $("loginCard").classList.remove("hidden");
   $("passInput").value = "";
 }
@@ -275,24 +282,20 @@ function start() {
     sel.addEventListener("change", () => {
       setCakeTestNight(Number(sel.value));
       selNight = null;
-      if (pass) login(pass, { quiet: true });
+      if (pass && staff) login(pass, staff, { quiet: true });
     });
   }
+  $("staffSelect").addEventListener("change", toggleManual);
   $("loginForm").addEventListener("submit", (e) => {
     e.preventDefault();
+    const name = chosenStaffName();
     const p = $("passInput").value;
+    if (!name) { $("loginError").textContent = "受け付ける人を選んでください"; return; }
     if (!p) { $("loginError").textContent = "合言葉を入れてください"; return; }
     $("loginError").textContent = "";
-    login(p);
+    login(p, name);
   });
-  $("staffPick").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.dataset.manual) { $("staffManual").classList.remove("hidden"); $("staffInput").focus(); return; }
-    chooseStaff(b.dataset.staff);
-  });
-  $("staffManualBtn").addEventListener("click", () => chooseStaff($("staffInput").value));
-  $("changeStaffBtn").addEventListener("click", showStaffPicker);
+  $("changeStaffBtn").addEventListener("click", showLogin);
   $("logoutBtn").addEventListener("click", logout);
   $("nameInput").addEventListener("input", search);
   $("nameInput").addEventListener("keydown", (e) => {
@@ -333,10 +336,12 @@ function start() {
     const b = e.target.closest("[data-undo]");
     if (b) undo(b.dataset.undo, b.dataset.name);
   });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && pass && staff) loadTonight(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && pass && staff && !$("deskView").classList.contains("hidden")) loadTonight(); });
 
+  loadEmployees();
   const saved = cakeStore(PASS_KEY);
-  if (saved) login(saved, { quiet: true });
+  const savedStaff = cakeStore(STAFF_KEY);
+  if (saved && savedStaff) login(saved, savedStaff, { quiet: true });
 }
 
 start();

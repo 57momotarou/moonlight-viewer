@@ -268,7 +268,9 @@ function imgShootingStars(ctx, W, H, seed = 1, spots = null) {
 }
 
 // ---------- ケーキカード ----------
-async function makeCardImage({ visit, names, startDate, total, frame = "moon", shooting = false }) {
+// selfName：自分の名前（入れないときは空）／withNames：一緒の人（「with A ・ B」で入れる）
+async function makeCardImage({ visit, selfName = "", withNames = [], startDate, total, frame = "moon", shooting = false }) {
+  const hasNames = Boolean(selfName) || withNames.length > 0;
   await imgFonts();
   const W = 1080, H = 1350;
   const cv = document.createElement("canvas");
@@ -289,14 +291,14 @@ async function makeCardImage({ visit, names, startDate, total, frame = "moon", s
 
   const im = await imgLoad(visit.image);
   if (im) {
-    const size = names.length ? 700 : 760;
+    const size = hasNames ? 690 : 760;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,.45)";
     ctx.shadowBlur = 40;
     ctx.drawImage(im, (W - size) / 2, 200, size, size);
     ctx.restore();
   }
-  let y = names.length ? 980 : 1040;
+  let y = hasNames ? (selfName && withNames.length ? 950 : 980) : 1040;
   ctx.fillStyle = "#f3dfa8";
   ctx.font = `600 62px ${IMG_FONT}`;
   imgCenterText(ctx, visit.cake, W / 2, y, W - 160);
@@ -305,12 +307,35 @@ async function makeCardImage({ visit, names, startDate, total, frame = "moon", s
   ctx.font = `500 34px ${IMG_SANS}`;
   imgCenterText(ctx, `＋ ${visit.drink}`, W / 2, y, W - 160);
 
-  if (names.length) {
-    y += 70;
+  if (selfName) {
+    y += 72;
     ctx.fillStyle = "#f4ecd2";
-    ctx.font = `500 40px ${IMG_FONT}`;
-    const lines = imgWrapNames(ctx, names, W - 200).slice(0, 3);
-    for (const line of lines) { ctx.fillText(line, W / 2, y); y += 52; }
+    ctx.font = `600 44px ${IMG_FONT}`;
+    imgCenterText(ctx, selfName, W / 2, y, W - 200);
+  }
+  if (withNames.length) {
+    y += selfName ? 56 : 72;
+    ctx.font = `500 38px ${IMG_FONT}`;
+    const lines = imgWrapNames(ctx, withNames, W - 300).slice(0, 2);
+    lines.forEach((line, i) => {
+      const prefix = i === 0 ? "with  " : "";
+      ctx.font = `italic 500 34px ${IMG_SANS}`;
+      const pw = prefix ? ctx.measureText(prefix).width : 0;
+      ctx.font = `500 38px ${IMG_FONT}`;
+      const lw = ctx.measureText(line).width;
+      const x0 = W / 2 - (pw + lw) / 2;
+      ctx.textAlign = "left";
+      if (prefix) {
+        ctx.fillStyle = "#d6b365";
+        ctx.font = `italic 500 34px ${IMG_SANS}`;
+        ctx.fillText(prefix, x0, y);
+      }
+      ctx.fillStyle = "#f4ecd2";
+      ctx.font = `500 38px ${IMG_FONT}`;
+      ctx.fillText(line, x0 + pw, y);
+      ctx.textAlign = "center";
+      y += 50;
+    });
   }
   await imgFooter(ctx, W, H);
   return cv;
@@ -493,18 +518,36 @@ async function makeSkyImage(pub) {
 }
 
 // ---------- 保存 ----------
+// スマホ：画像を大きく表示して「長押し →『写真に追加』」で保存（共有画面は出さない）。パソコン：そのままダウンロード。
+function isTouchDevice() {
+  return window.matchMedia?.("(pointer: coarse)").matches || /iPhone|iPad|Android/i.test(navigator.userAgent);
+}
+
+function showSaveOverlay(dataUrl) {
+  let ov = document.getElementById("saveOverlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "saveOverlay";
+    ov.className = "save-overlay";
+    ov.innerHTML = `<div class="save-overlay-inner">
+        <p class="save-overlay-tip">画像を<b>長押し</b>して<br>「"写真"に追加」（Androidは「画像をダウンロード」）で保存できます</p>
+        <img alt="保存する画像">
+        <button class="btn" type="button">閉じる</button>
+      </div>`;
+    ov.addEventListener("click", (e) => { if (e.target === ov || e.target.closest("button")) ov.classList.add("hidden"); });
+    document.body.appendChild(ov);
+  }
+  ov.querySelector("img").src = dataUrl;
+  ov.classList.remove("hidden");
+}
+
 async function saveCanvas(cv, filename) {
+  if (isTouchDevice()) {
+    showSaveOverlay(cv.toDataURL("image/png"));
+    return "overlay";
+  }
   const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
   if (!blob) throw new Error("画像を作れませんでした");
-  const file = new File([blob], filename, { type: "image/png" });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file] });
-      return "shared";
-    } catch (e) {
-      if (e && e.name === "AbortError") return "cancel";
-    }
-  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

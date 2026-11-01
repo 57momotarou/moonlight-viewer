@@ -4,7 +4,7 @@ Moonlight Viewer（iPhone閲覧専用）
   yuzucityiphone フォルダーの「中身」を、公開先（GitHub Pages のリポジトリ）へ上書きします。
   ・config.js はZIPに入っていません。公開先にある config.js はそのまま残してください。
   ・古い app.js / style.css / inventory-report.* が公開先に残っていても動作に影響はありません（不要なら削除して構いません）。
-  反映後、iPhoneでアプリを開き直すと新しい版に切り替わります（キャッシュ moonlight-viewer-v32）。
+  反映後、iPhoneでアプリを開き直すと新しい版に切り替わります（キャッシュ moonlight-viewer-v33）。
 
 ■ 初めて公開する場合
   config.js を作り、次の2つを書き込むか、iPhoneのログイン画面「接続設定」から入力します。
