@@ -12,18 +12,7 @@
   const MATERIALS = { food: "食べ物の素", drink: "飲み物の素", joint: "リラックスの素", full: "満腹の素", sweet: "甘いものの素" };
   const COIN_EXCHANGE_CHANGE_AT = "2026-09-03T17:00";
   const list = value => Array.isArray(value) ? value.filter(item => item && typeof item === "object") : [];
-  // 同じ文字列には同じ結果を返す純粋な変換なので、結果を覚えて使い回す（性能対策・2026-11-02。件数が増えたら捨てる）
-  const textCache = new Map();
-  const text = value => {
-    const raw = String(value ?? "");
-    let result = textCache.get(raw);
-    if (result === undefined) {
-      result = raw.normalize("NFKC").trim();
-      if (textCache.size >= 50000) textCache.clear();
-      textCache.set(raw, result);
-    }
-    return result;
-  };
+  const text = value => String(value ?? "").normalize("NFKC").trim();
   const key = value => text(value).toLowerCase().replace(/[\s_\-・.()（）]+/g, "");
   function number(value) {
     const result = Number(text(value).replace(/[,$￥¥\s]/g, ""));
@@ -142,22 +131,7 @@
     };
   }
 
-  // 画面の1回の描画のあいだだけ、同じ state から作ったイベント一覧を使い回す（性能対策・2026-11-02）。
-  // build はイベントを書き換えないので共有してよい。描画が終われば必ず破棄する。
-  let eventsCache = null;
-  function withEventsCache(fn) {
-    if (eventsCache) return fn();
-    eventsCache = { state: null, events: null };
-    try { return fn(); } finally { eventsCache = null; }
-  }
   function eventsFromState(state) {
-    if (eventsCache && eventsCache.events && eventsCache.state === state) return eventsCache.events;
-    const events = eventsFromStateNow(state);
-    if (eventsCache) { eventsCache.state = state; eventsCache.events = events; }
-    return events;
-  }
-
-  function eventsFromStateNow(state) {
     const resolve = catalogResolver(state);
     const resolveMaterial = (item, cat) => {
       const id = text(item.productCatalogId || item.product_catalog_id);
@@ -598,5 +572,5 @@
   }
 
   return { build, normalizeCategory: category, catalogResolver, dateTime, coinExchangeForInterval, createMovementReview, createTimingReview, movementBasis, assessPair, describeAssessment,
-    materialCategory, fullMaterialRecorded, eventsFromState, withEventsCache, COIN_EXCHANGE_CHANGE_AT, CATEGORIES, STOCK_CATEGORIES, LABELS, MATERIALS, STOCK_KEYS, ASSESSMENT_LABELS };
+    materialCategory, fullMaterialRecorded, eventsFromState, COIN_EXCHANGE_CHANGE_AT, CATEGORIES, STOCK_CATEGORIES, LABELS, MATERIALS, STOCK_KEYS, ASSESSMENT_LABELS };
 });
