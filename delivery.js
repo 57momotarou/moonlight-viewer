@@ -44,7 +44,9 @@ function dlvAssetUrl(a) {
   if (!dlvUrlCache.has(a.file)) {
     const p = (async () => {
       if (!window.crypto || !crypto.subtle) throw new Error("このブラウザでは画像を開けません");
-      const res = await fetch(`assets/${a.file}`, { cache: "force-cache" });
+      // 公開直後に一度失敗した結果（404）が残っていることがあるので、だめなら取り直す
+      let res = await fetch(`assets/${a.file}`, { cache: "force-cache" }).catch(() => null);
+      if (!res || !res.ok) res = await fetch(`assets/${a.file}?r=${Date.now()}`, { cache: "reload" });
       if (!res.ok) throw new Error("画像を読み込めませんでした");
       const buf = new Uint8Array(await res.arrayBuffer());
       const raw = Uint8Array.from(atob(a.key), (c) => c.charCodeAt(0));
