@@ -221,6 +221,13 @@
         dateOnly: !/[ T]\d{1,2}:\d{2}/.test(text(rawAt)), label: text(raw.orderNo || raw.order_no) || "デリバリー",
         buyer: text(raw.buyerName || raw.buyer_name || raw.customerName), counts, stockCounts, materialAllocationUnknown, unknownItems, note: text(raw.note) });
     });
+    // 18夜の月「ふたりの月」で無料で渡したホールケーキ。受付で受け取りを押した日時に、ジョイントの在庫から引く（利用者指定 2026-11-11）
+    list(state.futariHandouts).forEach((raw, i) => {
+      const count = quantity(raw.count ?? 1);
+      const counts = { ...zeroCounts(), joint: count };
+      events.push({ kind: "gift", id: text(raw.id) || `gift-${i}`, at: dateTime(raw.at), dateOnly: false,
+        label: text(raw.label) || "ふたりの月", buyer: text(raw.names), counts, stockCounts: { ...counts, full: 0 }, note: "" });
+    });
     list(state.coinHistory || state.coinTransactions || state.coinLogs).forEach((raw, i) => {
       const rawAt = Object.prototype.hasOwnProperty.call(raw, "recordedAt") ? raw.recordedAt : (raw.registeredAt || raw.createdAt);
       const source = ["manual", "opening", "initial", "adjustment"].includes(raw.source) ? raw.source : "manual";
@@ -255,15 +262,17 @@
 
   function reconcile(start, end, events) {
     const sales = events.filter(e => e.kind === "sale"), deliveries = events.filter(e => e.kind === "delivery");
+    const gifts = events.filter(e => e.kind === "gift");
     const coins = events.filter(e => e.kind === "coin");
     const categories = STOCK_CATEGORIES.map(cat => {
       const saleQty = sum(sales, e => e.stockCounts[cat]), deliveryQty = sum(deliveries, e => e.stockCounts[cat]);
-      const before = start.totals[cat], after = end.totals[cat], expected = before - saleQty - deliveryQty;
+      const giftQty = sum(gifts, e => e.stockCounts[cat]);
+      const before = start.totals[cat], after = end.totals[cat], expected = before - saleQty - deliveryQty - giftQty;
       const difference = after - expected;
       return { category: cat, label: LABELS[cat], before, after, expected, difference,
         productBefore: start.productTotals[cat], productAfter: end.productTotals[cat],
         materialBefore: start.materials[cat], materialAfter: end.materials[cat],
-        saleQty, deliveryQty, outgoing: saleQty + deliveryQty, delta: after - before,
+        saleQty, deliveryQty, giftQty, outgoing: saleQty + deliveryQty + giftQty, delta: after - before,
         loss: Math.max(0, -difference), increase: Math.max(0, difference) };
     });
     const incomingCandidates = coins.filter(e => e.source === "manual" && e.amount > 0);
@@ -273,7 +282,7 @@
     const coinDifference = end.spCoins - expectedCoins;
     const decreaseEquivalent = Math.max(0, -coinDifference);
     return {
-      start, end, categories, events, saleCount: sales.length, deliveryCount: deliveries.length, coinCount: coins.length,
+      start, end, categories, events, saleCount: sales.length, deliveryCount: deliveries.length, giftCount: gifts.length, coinCount: coins.length,
       otherAmount: sum(sales, e => e.otherAmount), otherCount: sales.filter(e => e.otherAmount > 0 || e.unclassified).length,
       unknownDeliveryCount: deliveries.filter(e => e.unknownItems > 0).length,
       amountMismatchCount: sales.filter(e => e.invoiceAmount > 0 && Math.abs(e.totalAmount - e.invoiceAmount) >= 1).length,
@@ -400,7 +409,7 @@
       const original = row.categories.find(c => c.category === cat) || {
         category: cat, label: MATERIALS.sweet, before: row.start.materials.sweet, after: row.end.materials.sweet,
         productBefore: 0, productAfter: 0, materialBefore: row.start.materials.sweet, materialAfter: row.end.materials.sweet,
-        saleQty: 0, deliveryQty: 0, outgoing: 0, delta: row.end.materials.sweet - row.start.materials.sweet
+        saleQty: 0, deliveryQty: 0, giftQty: 0, outgoing: 0, delta: row.end.materials.sweet - row.start.materials.sweet
       };
       const exchangeNeed = original.after - original.before + original.outgoing;
       return { ...original, exchangeNeed, expected: null, exchanged: null, stockIn: 0, stockOut: 0,
@@ -505,7 +514,7 @@
     const allEvents = eventsFromState(state);
     const events = allEvents.filter(e => e.at > start.capturedAt && e.at <= end.capturedAt);
     const invalidEvents = allEvents.filter(e => !e.at);
-    for (const [kind, label] of [["sale", "請求書"], ["delivery", "デリバリー"], ["coin", "コイン履歴"]]) {
+    for (const [kind, label] of [["sale", "請求書"], ["delivery", "デリバリー"], ["gift", "ふたりの月の受け渡し"], ["coin", "コイン履歴"]]) {
       const missing = invalidEvents.filter(e => e.kind === kind);
       if (missing.length) warn(`${kind}-date`, `日時不明の${label} ${missing.length}件`, "期間に含められないため除外しています。履歴導入前のコイン残高・初期登録・累計修正は入庫に含めません。", kind !== "coin" || missing.some(e => e.source === "manual"));
     }

@@ -22,6 +22,7 @@
       ${pair("開始在庫（商品＋素）", qty(row.before))}
       ${pair("店頭販売（個数が分かる分）", qty(row.saleQty))}
       ${pair("デリバリー（個数が分かる分）", qty(row.deliveryQty))}
+      ${row.giftQty ? pair("ふたりの月で無料で渡した分", qty(row.giftQty)) : ""}
       ${pair("終了在庫（商品＋素）", qty(row.after))}
       ${pair("終了 − 開始 ＋ 個数が分かる販売", signed(row.exchangeNeed))}
       ${pair("この種類に交換した素の数", row.exchangePending ? "不明（総数で照合）" : "交換差分なし")}
@@ -68,19 +69,20 @@
   function evidenceRows(events, limit = Infinity) {
     return events.slice(0, limit).map(event => {
       const source = { manual: "コイン登録", opening: "履歴導入前", initial: "初期登録", adjustment: "累計修正" };
-      const label = event.kind === "sale" ? "店頭販売" : event.kind === "delivery" ? "デリバリー" : source[event.source];
+      const label = event.kind === "sale" ? "店頭販売" : event.kind === "delivery" ? "デリバリー" : event.kind === "gift" ? "無料（ふたりの月）" : source[event.source];
       const counts = event.counts ? engine.STOCK_CATEGORIES.map(c => `${c === "food" ? "食べ物（通常）" : engine.LABELS[c]} ${qty(event.stockCounts?.[c] ?? event.counts[c])}`).join(" / ") : signed(event.amount, "枚");
       const other = event.kind === "sale" ? ` / その他 ${money(event.otherAmount)} / 合計 ${money(event.totalAmount)}` : "";
       const mismatch = event.invoiceAmount > 0 && Math.abs(event.totalAmount - event.invoiceAmount) >= 1;
       return `<article class="ir-evidence-row"><div class="ir-row-head"><strong>${esc(event.label)}</strong>${badge(label)}</div>
-        <p class="ir-note">${esc(date(event.at))}${event.buyer ? ` / 購入者 ${esc(event.buyer)}` : ""}</p>
+        <p class="ir-note">${esc(date(event.at))}${event.buyer ? ` / ${event.kind === "gift" ? "ふたり" : "購入者"} ${esc(event.buyer)}` : ""}</p>
         <p>${esc(counts + other)}</p>${mismatch ? `<p class="ir-loss">請求書の合計 ${money(event.invoiceAmount)} と内訳が異なります。</p>` : ""}
         ${event.note ? `<p class="ir-note">${esc(event.note)}</p>` : ""}</article>`;
     }).join("") || '<p class="ir-note">この区間に保存済みの記録はありません。</p>';
   }
 
   function evidenceHtml(events, key, open = false, all = false) {
-    const meta = badge(`店頭 ${events.filter(e => e.kind === "sale").length}件`) + badge(`デリバリー ${events.filter(e => e.kind === "delivery").length}件`) + badge(`コイン ${events.filter(e => e.kind === "coin").length}件`);
+    const gifts = events.filter(e => e.kind === "gift").length;
+    const meta = badge(`店頭 ${events.filter(e => e.kind === "sale").length}件`) + badge(`デリバリー ${events.filter(e => e.kind === "delivery").length}件`) + (gifts ? badge(`無料 ${gifts}件`) : "") + badge(`コイン ${events.filter(e => e.kind === "coin").length}件`);
     if (all) return detail(key, "照合に使った記録", meta, evidenceRows(events), open);
     return `<details class="ir-detail" data-ir-key="${esc(key)}" data-ir-lazy="events"><summary><span>照合に使った記録</span><span class="ir-meta">${meta}</span></summary><div class="ir-content" data-ir-content></div></details>`;
   }
@@ -92,7 +94,7 @@
       <dl class="ir-grid ir-equation">
       ${pair("開始の商品＋全種類の素", qty(a.beforeTotal))}
       ${pair(a.coinCheckPending ? "コイン差分による交換量（参考）" : "コイン差分による交換量", `＋${qty(a.exchangeMaterials)}`)}
-      ${pair("個数が分かる販売・デリバリー", `−${qty(a.outgoing)}`)}
+      ${pair(a.categories.some(c => c.giftQty) ? "個数が分かる販売・デリバリー・無料で渡した分" : "個数が分かる販売・デリバリー", `−${qty(a.outgoing)}`)}
       ${pair("数量不明の販売を引く前の予定数", qty(a.expectedTotal))}
       ${pair("実際の終了在庫", qty(a.afterTotal))}
       ${pair(a.intervalCount > 1 ? "期間の純差（終了 − 予定）" : "総数の差（終了 − 予定）", signed(a.difference))}
@@ -161,7 +163,7 @@
       ${evidenceHtml(report.events, "events", all, all)}
       ${issues ? detail("checks", "記録の確認事項", badge(`${report.warnings.filter(w => w.blocking !== false).length}件未解決`), issues, all) : ""}
       ${afterNote}
-      ${all ? detail("method", "集計方法", "", '<p>通常の食べ物は食べ物の素、同時回復商品は満腹の素だけを合わせ、別々に照合します。甘いものの素も含む全種類の総数を比較します。素1個から商品1個を作る作業では総数は変わりません。</p><p>交換枚数＝開始コイン＋期間内に集めた登録コイン−終了コイン。10枚ごとに素100個（比較区間の終了在庫が2026/09/03 17:00より前の区間だけ50個。9/3→9/4は100個で計算）へ交換したとして、全体の予定数＝開始総数＋交換総数−個数が分かる店頭販売−デリバリーを計算します。交換先の入力は不要です。</p><p>交換先ごとの回数は分からないため、全種類のどこへ交換したとしても残る最小の減少・増加を確認します。無料配布・使用・移動や外部からの補充はない運用です。総数が一致していても、種類別の増減が交換単位で説明できないときは差を表示します。</p><p>その他売上の金額から個数・種類を推測しません。数量不明の売上がある区間の減少は、販売か不足かを判定できません。コイン端数や日時・読み取りの問題がある区間も未判定になります。</p><p>開始と同じ分の記録は含めず、終了と同じ分は含めます。後から請求書・在庫・コインを追加・修正すると再計算します。保存された実在庫は書き換えません。iPhoneは同期・更新した同じデータで表示します。</p>', all) : ""}`;
+      ${all ? detail("method", "集計方法", "", '<p>通常の食べ物は食べ物の素、同時回復商品は満腹の素だけを合わせ、別々に照合します。甘いものの素も含む全種類の総数を比較します。素1個から商品1個を作る作業では総数は変わりません。</p><p>交換枚数＝開始コイン＋期間内に集めた登録コイン−終了コイン。10枚ごとに素100個（比較区間の終了在庫が2026/09/03 17:00より前の区間だけ50個。9/3→9/4は100個で計算）へ交換したとして、全体の予定数＝開始総数＋交換総数−個数が分かる店頭販売−デリバリーを計算します。交換先の入力は不要です。</p><p>交換先ごとの回数は分からないため、全種類のどこへ交換したとしても残る最小の減少・増加を確認します。無料配布・使用・移動や外部からの補充はない運用です（例外：18夜の月「ふたりの月」で無料で渡したケーキ（2個セット）は、受付で受け取りを押した日時に、ジョイント（リラックスの素）から1セット1個として引きます。Windowsで18夜の月の画面か在庫の画面を開くと取り込みます）。総数が一致していても、種類別の増減が交換単位で説明できないときは差を表示します。</p><p>その他売上の金額から個数・種類を推測しません。数量不明の売上がある区間の減少は、販売か不足かを判定できません。コイン端数や日時・読み取りの問題がある区間も未判定になります。</p><p>開始と同じ分の記録は含めず、終了と同じ分は含めます。後から請求書・在庫・コインを追加・修正すると再計算します。保存された実在庫は書き換えません。iPhoneは同期・更新した同じデータで表示します。</p>', all) : ""}`;
 
   }
 
@@ -169,6 +171,7 @@
     const a = report.assessment;
     const sales = a.categories.reduce((sum, c) => sum + c.saleQty, 0);
     const deliveries = a.categories.reduce((sum, c) => sum + c.deliveryQty, 0);
+    const gifts = a.categories.reduce((sum, c) => sum + (c.giftQty || 0), 0);
     const differenceLabel = a.difference < 0 ? `予定より ${qty(-a.difference)}少ない` : a.difference > 0 ? `予定より ${qty(a.difference)}多い` : "総数の差は0個";
     const card = (label, value, cls = "") => `<div class="ir-balance-card ${cls}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
     const issue = a.checkedLoss ? `販売・交換で説明できない減少が、少なくとも${qty(a.checkedLoss)}あります。`
@@ -176,20 +179,20 @@
       : a.status === "ok" ? "請求・デリバリー・コイン交換と在庫の増減が一致しています。"
       : "総数だけでなく、種類別・区間別の差を確認してください。";
     const rows = a.categories.map(c => {
-      const withoutExchange = c.before - c.saleQty - c.deliveryQty;
+      const withoutExchange = c.before - c.saleQty - c.deliveryQty - (c.giftQty || 0);
       const residual = c.after - withoutExchange;
       const label = c.category === "food" ? "食べ物（通常）" : c.category === "full" ? "同時回復" : c.label;
       const result = c.checkedLoss ? `減少差 ${qty(c.checkedLoss)}` : c.pendingLoss ? `未判定 ${qty(c.pendingLoss)}`
         : residual > 0 ? `補充相当 ＋${qty(residual)}` : residual < 0 ? `減少差 ${qty(-residual)}` : a.checkingPending ? "差0・確認待ち" : c.exchangePending ? "交換先の確認対象" : "差0";
-      return `<tr><th scope="row">${esc(label)}<small>${esc(engine.MATERIALS[c.category] || "")}</small></th><td>${num(c.before)}</td><td>−${num(c.saleQty)}</td><td>−${num(c.deliveryQty)}</td><td>${num(withoutExchange)}</td><td><strong>${num(c.after)}</strong></td><td class="${c.checkedLoss ? "ir-loss" : residual || a.checkingPending ? "ir-gain" : ""}">${esc(result)}</td></tr>`;
+      return `<tr><th scope="row">${esc(label)}<small>${esc(engine.MATERIALS[c.category] || "")}</small></th><td>${num(c.before)}</td><td>−${num(c.saleQty)}</td><td>−${num(c.deliveryQty)}${c.giftQty ? `<small>無料 −${num(c.giftQty)}</small>` : ""}</td><td>${num(withoutExchange)}</td><td><strong>${num(c.after)}</strong></td><td class="${c.checkedLoss ? "ir-loss" : residual || a.checkingPending ? "ir-gain" : ""}">${esc(result)}</td></tr>`;
     }).join("");
     return `<section class="ir-balance-overview" aria-label="請求と在庫の照合">
       <h3>請求と在庫は合っている？</h3><p class="ir-balance-verdict ${a.status === "ok" ? "ir-ok" : a.checkedLoss ? "ir-loss" : "ir-gain"}">${esc(issue)}</p>
-      <div class="ir-balance-equation">${card("開始在庫（商品＋素）", qty(a.beforeTotal))}<b>＋</b>${card(a.coinCheckPending ? "コイン交換（参考）" : "コイン交換", qty(a.exchangeMaterials))}<b>−</b>${card("店頭の請求", qty(sales))}<b>−</b>${card("デリバリー", qty(deliveries))}<b>＝</b>${card(a.checkingPending ? "予定在庫（暫定）" : "予定在庫", qty(a.expectedTotal), "ir-balance-expected")}</div>
+      <div class="ir-balance-equation">${card("開始在庫（商品＋素）", qty(a.beforeTotal))}<b>＋</b>${card(a.coinCheckPending ? "コイン交換（参考）" : "コイン交換", qty(a.exchangeMaterials))}<b>−</b>${card("店頭の請求", qty(sales))}<b>−</b>${card("デリバリー", qty(deliveries))}${gifts ? `<b>−</b>${card("無料（ふたりの月）", qty(gifts))}` : ""}<b>＝</b>${card(a.checkingPending ? "予定在庫（暫定）" : "予定在庫", qty(a.expectedTotal), "ir-balance-expected")}</div>
       <div class="ir-balance-result">${card("実在庫（商品＋素）", qty(a.afterTotal))}${card("予定との差", differenceLabel, a.status === "ok" ? "ir-ok" : a.checkedLoss ? "ir-loss" : "ir-gain")}</div>
       
       ${a.reasons.length ? `<div class="ir-next-checks"><strong>先に確認すること</strong><ul>${a.reasons.slice(0, 3).map(reason => `<li>${esc(reason)}</li>`).join("")}</ul>${a.reasons.length > 3 ? '<p class="ir-note">ほかの理由は判定の詳細へ</p>' : ""}</div>` : ""}
-      <div class="ir-reconcile-wrap"><table class="ir-reconcile-table"><thead><tr><th>種類・使う素</th><th>開始</th><th>店頭</th><th>配達</th><th>販売後<br>交換前</th><th>実在庫</th><th>補充・差の確認</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="ir-reconcile-wrap"><table class="ir-reconcile-table"><thead><tr><th>種類・使う素</th><th>開始</th><th>店頭</th><th>${gifts ? "配達・無料" : "配達"}</th><th>販売後<br>交換前</th><th>実在庫</th><th>補充・差の確認</th></tr></thead><tbody>${rows}</tbody></table></div>
       
     </section>`;
   }
